@@ -74,3 +74,46 @@ export function scrollToLine(line: number) {
   const lh = ed.getOption(monaco.editor.EditorOption.lineHeight);
   ed.setScrollTop(ed.getTopForLineNumber(base) + (line - base) * lh);
 }
+
+/** What part of the file the editor shows: lines [top, bottom), columns [left, right). */
+export interface CodeView {
+  file: string;
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+export function currentView(): CodeView | null {
+  const ed = editorRegistry.editor;
+  const file = editorRegistry.file;
+  if (!ed || !file) return null;
+  const { lh, cw } = metrics(ed);
+  const li = ed.getLayoutInfo();
+  const top = lineAt(ed, ed.getScrollTop(), lh);
+  const bottom = lineAt(ed, ed.getScrollTop() + li.height, lh);
+  const left = ed.getScrollLeft() / cw;
+  const right = (ed.getScrollLeft() + li.contentWidth) / cw;
+  return { file, top, bottom, left, right };
+}
+
+/**
+ * Code position -> screen point without clamping, plus the editor's content
+ * box, so callers can tell which way an off-screen position lies.
+ */
+export function codeToPointRaw(a: { file: string; line: number; col: number }): {
+  x: number;
+  y: number;
+  box: { left: number; top: number; right: number; bottom: number };
+} | null {
+  const ed = editorRegistry.editor;
+  if (!ed || editorRegistry.file !== a.file) return null;
+  const { rect, lh, cw, contentLeft } = metrics(ed);
+  const base = Math.max(1, Math.floor(a.line));
+  const lineCount = ed.getModel()?.getLineCount() ?? 1;
+  const top = base <= lineCount ? ed.getTopForLineNumber(base) : (base - 1) * lh;
+  const y = rect.top + top + (a.line - base) * lh - ed.getScrollTop();
+  const x = rect.left + contentLeft + a.col * cw - ed.getScrollLeft();
+  const li = ed.getLayoutInfo();
+  return { x, y, box: { left: rect.left + contentLeft, top: rect.top, right: rect.left + contentLeft + li.contentWidth, bottom: rect.top + li.height } };
+}

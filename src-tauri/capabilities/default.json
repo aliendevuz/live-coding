@@ -9,6 +9,9 @@
     "core:default",
     "opener:default",
     "dialog:default",
-    "opener:allow-reveal-item-in-dir"
+    "opener:allow-reveal-item-in-dir",
+    "core:webview:allow-set-webview-zoom",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen"
   ]
 }

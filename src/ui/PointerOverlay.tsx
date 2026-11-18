@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Highlighter, PenLine, Zap } from "lucide-react";
 import type { Anchor, PointerMsg, Session } from "../core/session";
-import { codeToPoint, pointToCode } from "./editor-registry";
+import { codeToPoint, codeToPointRaw, pointToCode } from "./editor-registry";
 
 export type Tool = "laser" | "pen" | "highlighter" | null;
 
@@ -39,6 +39,51 @@ function toAnchor(x: number, y: number): Anchor | null {
   return { k: "el", el: "window", x: x / innerWidth, y: y / innerHeight };
 }
 
+const PANE_NAMES: Record<string, string> = {
+  explorer: "Explorer",
+  panel: "Terminal panel",
+  terminal: "Terminal",
+  chat: "Chat",
+  notebook: "Notebook",
+  editor: "Editor",
+  tabs: "Editor",
+};
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * Where to draw the partner's pointer. Unlike strokes, the pointer never just
+ * disappears: if it points at something we cannot see, it is docked at the
+ * nearest edge with a hint ("line 120", "in main.py", "in Terminal").
+ */
+function pointerTarget(a: Anchor): { x: number; y: number; hint: string } | null {
+  if (a.k === "code") {
+    const raw = codeToPointRaw(a);
+    const wrap = document.querySelector(".editor-wrap")?.getBoundingClientRect();
+    if (!raw) {
+      if (!wrap) return null;
+      return { x: wrap.left + 28, y: wrap.top + 16, hint: `in ${a.file.split("/").pop()}` };
+    }
+    const b = raw.box;
+    const line = Math.floor(a.line);
+    if (raw.y < b.top - 2) return { x: clamp(raw.x, b.left, b.right - 30), y: b.top + 4, hint: `↑ line ${line}` };
+    if (raw.y > b.bottom + 2) return { x: clamp(raw.x, b.left, b.right - 30), y: b.bottom - 28, hint: `↓ line ${line}` };
+    if (raw.x > b.right + 2) return { x: b.right - 30, y: raw.y, hint: `→ column ${Math.round(a.col) + 1}` };
+    if (raw.x < b.left - 30) return { x: b.left + 2, y: raw.y, hint: `← column ${Math.round(a.col) + 1}` };
+    return { x: raw.x, y: raw.y, hint: "" };
+  }
+  const p = fromAnchor(a);
+  if (p) return { ...p, hint: "" };
+  // The element is hidden on our screen (closed pane, other notebook cell...).
+  const name = a.el.startsWith("cell-") ? "a notebook cell" : (PANE_NAMES[a.el] ?? a.el);
+  const hint = `in ${name} (hidden here)`;
+  if (a.el === "explorer") return { x: 6, y: innerHeight / 2, hint };
+  if (a.el === "chat") return { x: innerWidth - 190, y: innerHeight / 2, hint };
+  if (a.el === "panel" || a.el === "terminal") return { x: innerWidth / 2, y: innerHeight - 60, hint };
+  const wrap = document.querySelector(".editor-wrap")?.getBoundingClientRect();
+  return wrap ? { x: wrap.left + 28, y: wrap.top + 16, hint } : null;
+}
+
 function fromAnchor(a: Anchor): { x: number; y: number } | null {
   if (a.k === "code") return codeToPoint(a);
   if (a.el === "window") return { x: a.x * innerWidth, y: a.y * innerHeight };
@@ -61,6 +106,7 @@ interface Props {
 export function PointerOverlay({ session, tool, setTool, myColor, peerColor, peerName }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerRef = useRef<HTMLDivElement>(null);
+  const hintRef = useRef<HTMLSpanElement>(null);
   const strokes = useRef(new Map<string, Stroke>());
   const remoteAnchor = useRef<Anchor | null>(null);
   const [peerTool, setPeerTool] = useState<Stroke["tool"] | null>(null);
@@ -264,7 +310,13 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
       // Remote pointer: ease toward the target every frame (Figma-style smooth motion).
       const el = pointerRef.current!;
       const a = remoteAnchor.current;
-      const target = a ? fromAnchor(a) : null;
+      const pt = a ? pointerTarget(a) : null;
+      const target = pt;
+      const hintEl = hintRef.current;
+      if (hintEl && pt && hintEl.textContent !== pt.hint) {
+        hintEl.textContent = pt.hint;
+        el.classList.toggle("docked", !!pt.hint);
+      }
       if (target) {
         if (!cur || Math.hypot(target.x - cur.x, target.y - cur.y) > 600) cur = { ...target };
         else {
@@ -299,6 +351,7 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
           {peerTool === "pen" && <PenLine size={11} strokeWidth={2.5} />}
           {peerTool === "highlighter" && <Highlighter size={11} strokeWidth={2.5} />}
           {peerName}
+          <span ref={hintRef} className="cursor-hint" />
         </div>
       </div>
       {tool && (

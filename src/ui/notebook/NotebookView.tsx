@@ -80,6 +80,8 @@ monaco.languages.registerCompletionItemProvider("python", {
 
 // ------------------------------------------------------------- the view ---
 
+const nbCellCount = (nb: Y.Map<any> | null) => (nb?.get("cells") as Y.Array<any> | undefined)?.length ?? 0;
+
 interface Props {
   session: Session;
   path: string;
@@ -92,6 +94,39 @@ export function NotebookView({ session, path, canRun }: Props) {
   const [active, setActive] = useState<string | null>(null);
   const [editingMd, setEditingMd] = useState<Set<string>>(new Set());
   const editors = useRef(new Map<string, monaco.editor.IStandaloneCodeEditor>());
+  const cellsRef = useRef<HTMLDivElement>(null);
+
+  // Tell the partner which cells are on our screen (their visibility preview).
+  useEffect(() => {
+    const box = cellsRef.current;
+    if (!box) return;
+    let t = 0;
+    const publish = () => {
+      if (t) return;
+      t = window.setTimeout(() => {
+        t = 0;
+        const r = box.getBoundingClientRect();
+        const cells: string[] = [];
+        box.querySelectorAll<HTMLElement>("[data-cell]").forEach((el) => {
+          const c = el.getBoundingClientRect();
+          if (c.bottom > r.top + 4 && c.top < r.bottom - 4) cells.push(el.dataset.cell!);
+        });
+        session.awareness.setLocalStateField("nbView", { path, cells });
+      }, 100);
+    };
+    publish();
+    box.addEventListener("scroll", publish, { passive: true });
+    const ro = new ResizeObserver(publish);
+    ro.observe(box);
+    return () => {
+      clearTimeout(t);
+      box.removeEventListener("scroll", publish);
+      ro.disconnect();
+      session.awareness.setLocalStateField("nbView", null);
+    };
+    // Re-run when the notebook loads or cells are added / removed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, path, nb, nbCellCount(nb)]);
 
   // The notebook object can change: reload after a host restart, removal...
   useEffect(() => {
@@ -232,7 +267,7 @@ export function NotebookView({ session, path, canRun }: Props) {
         </div>
       )}
 
-      <div className="nb-cells">
+      <div className="nb-cells" ref={cellsRef}>
         {list.map((c, i) => (
           <div key={c.get("id")}>
             <InsertBar onAdd={(t) => addCell(t, i)} />

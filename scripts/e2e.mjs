@@ -146,6 +146,12 @@ class Page {
     await this.send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: keyCode });
     await this.send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode });
   }
+  /** A shortcut like Ctrl+Alt+B: mods from "ctrl", "alt", "shift". */
+  async combo(mods, key, code, keyCode) {
+    const m = (mods.includes("alt") ? 1 : 0) | (mods.includes("ctrl") ? 2 : 0) | (mods.includes("shift") ? 8 : 0);
+    await this.send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: keyCode, modifiers: m });
+    await this.send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode, modifiers: m });
+  }
 }
 
 const [t1, t2] = await targets();
@@ -463,6 +469,82 @@ for (let i = 0; i < 40 && !renamed; i++) {
 ok(renamed, "F2 inline rename keeps the extension");
 await sleep(500);
 await guest.shot(path.join(SHOTS, "duet-explorer.png"));
+
+// ---- v5: workbench layout, shortcuts, palette, zoom, partner visibility ----
+const shown = (page, anchor) => page.eval(`return !!document.querySelector('[data-anchor="${anchor}"]')?.offsetParent`);
+await guest.eval(`document.querySelector(".tree").focus()`);
+await guest.combo(["ctrl"], "b", "KeyB", 66);
+ok(!(await shown(guest, "explorer")), "Ctrl+B hides the explorer");
+await guest.combo(["ctrl"], "`", "Backquote", 192);
+ok(!(await shown(guest, "panel")), "Ctrl+` hides the terminal panel");
+await guest.combo(["ctrl", "alt"], "b", "KeyB", 66);
+ok(!(await shown(guest, "chat")), "Ctrl+Alt+B hides the chat");
+ok(
+  await host.until(`for (const [id, st] of ${S}.awareness.getStates()) if (id !== ${S}.doc.clientID && st.layout && !st.layout.explorer && !st.layout.panel && !st.layout.chat) return true; return false`, 5000),
+  "the host learns which panes the guest has closed",
+);
+await guest.combo(["ctrl"], "b", "KeyB", 66);
+await guest.combo(["ctrl"], "`", "Backquote", 192);
+await guest.combo(["ctrl", "alt"], "b", "KeyB", 66);
+ok((await shown(guest, "explorer")) && (await shown(guest, "panel")) && (await shown(guest, "chat")), "the same shortcuts bring them back");
+ok(!!(await guest.eval(`return [...document.querySelectorAll(".xterm-host")].some(e => e.offsetParent && e.querySelector(".xterm-rows"))`)), "terminal survives being hidden");
+
+// Zoom
+const dpr0 = await guest.eval(`return devicePixelRatio`);
+await guest.combo(["ctrl"], "=", "Equal", 187);
+await guest.combo(["ctrl"], "=", "Equal", 187);
+ok(await guest.until(`return devicePixelRatio > ${dpr0} * 1.2`, 3000), "Ctrl+= zooms in", `${dpr0} -> ${await guest.eval(`return devicePixelRatio`)}`);
+ok(JSON.parse(await guest.eval(`return localStorage.getItem("duet.layout")`)).zoom === 1.25, "zoom level is remembered");
+
+// Quick open and command palette
+await guest.combo(["ctrl"], "p", "KeyP", 80);
+ok(await guest.until(`return !!document.querySelector(".palette input")`, 3000), "Ctrl+P opens quick open");
+await guest.until(`return document.querySelectorAll(".palette-item").length > 3`, 5000);
+await guest.send("Input.insertText", { text: "clc" }); // fuzzy: calc.py
+await sleep(200);
+await guest.key("Enter", "Enter", 13);
+ok(await guest.until(`return document.querySelector(".tab.active")?.textContent.includes("calc.py")`, 5000), "fuzzy file search opens calc.py");
+await guest.combo(["ctrl", "shift"], "P", "KeyP", 80);
+await guest.until(`return !!document.querySelector(".palette input")`, 3000);
+await guest.send("Input.insertText", { text: "toggle explorer" });
+await sleep(200);
+await guest.key("Enter", "Enter", 13);
+ok(!(await shown(guest, "explorer")), "command palette runs a command");
+await guest.combo(["ctrl"], "b", "KeyB", 66);
+
+// A long file the guest sees less of (zoomed in): the host's preview shades the rest.
+fs.writeFileSync(path.join(proj, "long.py"), Array.from({ length: 150 }, (_, i) => `line_${i + 1} = ${i + 1}  # ${"x".repeat(i % 7 === 0 ? 120 : 10)}`).join("\n") + "\n");
+// Opening calc.py by hand turned follow off (as in VS Code Live Share); turn it back on.
+if (!(await guest.eval(`return !!document.querySelector(".tb-btn.on svg.lucide-eye")`))) await guest.combo(["ctrl", "alt"], "f", "KeyF", 70);
+await host.eval(`document.querySelector('[data-path="long.py"]')?.click()`);
+await sleep(300);
+await host.eval(`await new Promise(r => setTimeout(r, 300)); document.querySelector('[data-path="long.py"]')?.click()`);
+ok(await guest.until(`return document.querySelector(".tab.active")?.textContent.includes("long.py")`, 10000), "guest follows into long.py");
+await sleep(800);
+const views = await host.eval(`
+  let peer = null; for (const [id, st] of ${S}.awareness.getStates()) if (id !== ${S}.doc.clientID) peer = st.view;
+  const mine = ${S}.awareness.getLocalState().view; return { peer, mine }`);
+ok(views.peer && views.mine && views.peer.file === "long.py" && views.peer.bottom < views.mine.bottom, "host knows the guest sees fewer lines", `guest ${views.peer?.bottom?.toFixed(1)} vs host ${views.mine?.bottom?.toFixed(1)}`);
+await host.combo(["ctrl", "alt"], "v", "KeyV", 86);
+ok(await host.until(`const c = document.querySelector(".visibility-overlay"); return !!c && c.style.display !== "none"`, 3000), "Ctrl+Alt+V turns the visibility preview on");
+// The guest points at line 130, far below what the host shows: the pointer docks with a hint.
+await guest.eval(`${S}.sendPointer({ t: "p", a: { k: "code", file: "long.py", line: 130.5, col: 4 } })`);
+ok(await host.until(`return /line 130/.test(document.querySelector(".remote-pointer .cursor-hint")?.textContent ?? "")`, 5000), "an off-screen pointer docks at the edge with its line");
+await sleep(500);
+await host.shot(path.join(SHOTS, "duet-visibility.png"));
+await host.combo(["ctrl", "alt"], "v", "KeyV", 86);
+await guest.combo(["ctrl"], "0", "Digit0", 48);
+
+// Narrow window: the workbench must still fit.
+await guest.send("Emulation.setDeviceMetricsOverride", { width: 640, height: 520, deviceScaleFactor: 1, mobile: false });
+await sleep(800);
+const fits = await guest.eval(`return document.documentElement.scrollWidth <= innerWidth + 1 && document.querySelector(".tb-right").getBoundingClientRect().right <= innerWidth + 1`);
+ok(fits, "a 640 px wide window still fits the workbench");
+const codeW = await guest.eval(`return Math.round(document.querySelector(".editor-wrap").getBoundingClientRect().width)`);
+ok(!(await shown(guest, "chat")) && codeW >= 300, "narrow window folds the chat away to give the code room", `code ${codeW}px`);
+await guest.shot(path.join(SHOTS, "duet-narrow.png"));
+await guest.send("Emulation.clearDeviceMetricsOverride", {});
+await sleep(400);
 
 // ---- reconnect ----
 const tr = Date.now();

@@ -55,6 +55,41 @@ Ilova Apple Developer akkauntisiz "ad-hoc" usulda imzolanadi. Bu bepul, lekin bi
 
 Mikrofon so'rovi uchun matn `src-tauri/Info.plist` faylida. Mac'da tezkor tugmalar Ctrl o'rniga Cmd bilan ishlaydi. Ogohlantirishsiz tarqatish uchun Apple Developer akkaunti ($99/yil) va notarization kerak, bitta o'quvchi uchun bu shart emas.
 
+## Tezkor tugmalar (v5)
+
+Mac'da `Ctrl` o'rniga `Cmd` ishlatiladi.
+
+| Tugma | Vazifa |
+|---|---|
+| `Ctrl+B` | Explorer'ni yashirish / ko'rsatish |
+| `` Ctrl+` `` yoki `Ctrl+J` | Terminal panelini yashirish / ko'rsatish |
+| `Ctrl+Alt+B` | Chat'ni yashirish / ko'rsatish |
+| `` Ctrl+Shift+` `` | Yangi terminal |
+| `Ctrl+P` | Faylni nomi bo'yicha tez ochish (fuzzy qidiruv) |
+| `Ctrl+Shift+P` yoki `F1` | Buyruqlar palitrasi |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Kattalashtirish / kichiklashtirish / asl holat (eslab qolinadi) |
+| `F11` | To'liq ekran |
+| `Ctrl+Alt+V` | Visibility preview |
+| `Ctrl+Alt+F` | Sherigingizni kuzatish (Follow) |
+| `Ctrl+Shift+M` | Mikrofonni o'chirish / yoqish |
+| `Ctrl+Alt+L` / `P` / `H` / `C` | Laser / qalam / marker / chizilganlarni tozalash |
+| `F5` | Faylni ishga tushirish |
+
+Title bar'da VS Code'dagidek uchta layout tugmasi bor: Explorer, panel va chat. Panellar yashirilganda terminal va boshqa holatlar yo'qolmaydi. Panellar holati, o'lchamlari va zoom keyingi darsga eslab qolinadi.
+
+**Kichik oyna.** Oynani 420×320 gacha kichraytirish mumkin. 860 px'dan tor oynada chat, 620 px'dan torda Explorer avtomatik yopiladi, title bar esa ixchamlashadi. Yopilgan panelni tugma yoki tezkor tugma bilan baribir ochish mumkin.
+
+## Visibility preview (v5)
+
+Ikkala tomon ham o'z ekranida nima ko'rinayotganini sherigiga yuborib turadi:
+- kodda ko'rinib turgan qatorlar va ustunlar
+- notebook'da ekrandagi hujayralar
+- qaysi panellar yopiqligi
+
+Title bar'dagi 👁 (ScanEye) tugmasi yoki `Ctrl+Alt+V` yoqilganda, sherigingizga **ko'rinmayotgan** joylar sizning ekraningizda shtrixlangan soya bilan qoplanadi va yoniga izoh chiqadi: "Below Student's screen", "Off Student's screen →", "Student is in main.py", "Terminal panel is hidden for Student". Bu, masalan, sizning ekraningiz katta va o'quvchingiz zoom'da bo'lsa foydali: tushuntirayotgan joyingiz unga ko'rinyaptimi, yo'qmi, darhol bilasiz.
+
+Sherigingizning kursori ham endi jimgina yo'qolmaydi. U siz ko'rmayotgan joyni ko'rsatsa, ekran chetiga yopishib turadi va yonida izoh chiqadi: "↓ line 130", "in main.py" yoki "in Terminal (hidden here)".
+
 ## Mikrofon ruxsati
 
 Tauri Windows'da sahifani Microsoft WebView2 (Edge/Chromium) orqali ko'rsatadi. WebView2 ham brauzer kabi har qanday sahifadan mikrofon uchun ruxsat so'raydi. Duet v3'da `on_permission_request` orqali mikrofon **faqat ilovaning o'z sahifasiga** avtomatik beriladi (`src-tauri/src/lib.rs`), boshqa ruxsatlar odatdagidek so'raladi. Windows'ning o'z sozlamasi (Settings → Privacy → Microphone → "Let desktop apps access your microphone") alohida va yoqilgan bo'lishi kerak.
@@ -107,7 +142,7 @@ Narxi: bitta dars uchun bir necha o'nlab so'rov ketadi (kutish paytida har 1–2
 npm run test:signaling                                   # Lambda mantig'i
 node scripts/check-signaling.mjs <URL>                   # deploy qilingan Lambda'ni tekshirish
 cd src-tauri; cargo test                                 # path himoyasi, istisnolar
-npx tauri build --debug --no-bundle; node scripts/e2e.mjs # ikki haqiqiy oyna, 71 ta tekshiruv; notebook testlari uchun DUET_E2E_PYTHON_DIR = ipykernel bor Python'ning Scripts papkasi
+npx tauri build --debug --no-bundle; node scripts/e2e.mjs # ikki haqiqiy oyna, 88 ta tekshiruv; notebook testlari uchun DUET_E2E_PYTHON_DIR = ipykernel bor Python'ning Scripts papkasi
 ```
 
 `e2e.mjs` bitta kompyuterda ikkita Duet oynasini ochadi (host va guest) va ularni WebView2 DevTools orqali boshqaradi. U quyidagilarni tekshiradi: ulanish, fayl ro'yxati va ignore qoidalari, path traversal'ning bloklanishi, tahrirning ikki yo'nalishda diskka yetishi, 3 MB faylni uzatish va cache, clone, terminal va ruxsatlar, Run, follow, tunnel (HTTP, 3 MB, 8 ta parallel so'rov), audio oqimi, chat, pointer, uzilib qayta ulanish.

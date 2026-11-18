@@ -6,7 +6,7 @@ import { decodeText } from "../core/files";
 import type { Session } from "../core/session";
 import { canRun } from "../core/terminals";
 import { basename, formatBytes } from "../core/util";
-import { editorRegistry, scrollToLine, topLine } from "./editor-registry";
+import { currentView, editorRegistry, scrollToLine, topLine } from "./editor-registry";
 import { FileIcon, Logo } from "./icons";
 import { NotebookView } from "./notebook/NotebookView";
 import { monaco } from "./monaco-setup";
@@ -233,6 +233,7 @@ export const EditorArea = forwardRef<EditorHandle, Props>(function EditorArea(
     editorRegistry.file = showsCode ? active : null;
     session.awareness.setLocalStateField("file", active);
     session.awareness.setLocalStateField("top", showsCode ? topLine() : 1);
+    session.awareness.setLocalStateField("view", showsCode ? currentView() : null);
     onActive(active);
     if (showsCode) ed.focus();
   }, [active, activeTab?.kind, session, onActive]);
@@ -241,14 +242,19 @@ export const EditorArea = forwardRef<EditorHandle, Props>(function EditorArea(
   useEffect(() => {
     const ed = edRef.current!;
     let t = 0;
-    const sub = ed.onDidScrollChange(() => {
+    // Publish where we are scrolled (follow mode) and what we can see
+    // (the partner's visibility preview).
+    const publish = () => {
       if (t) return;
       t = window.setTimeout(() => {
         t = 0;
-        if (editorRegistry.file) session.awareness.setLocalStateField("top", topLine());
+        if (!editorRegistry.file) return;
+        session.awareness.setLocalStateField("top", topLine());
+        session.awareness.setLocalStateField("view", currentView());
       }, 80);
-    });
-    return () => sub.dispose();
+    };
+    const subs = [ed.onDidScrollChange(publish), ed.onDidLayoutChange(publish)];
+    return () => subs.forEach((x) => x.dispose());
   }, [session]);
 
   // ---- follow the peer ----
