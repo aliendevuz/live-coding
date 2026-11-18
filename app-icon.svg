@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <filter id="sh" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="228" fill="#16161A"/>
+  <!-- two voices: teacher and student -->
+  <circle cx="410" cy="470" r="230" fill="#7B61FF"/>
+  <circle cx="614" cy="470" r="230" fill="#0D99FF" style="mix-blend-mode:screen"/>
+  <!-- Figma-style multiplayer cursor -->
+  <path filter="url(#sh)" transform="translate(548 548) scale(13)"
+        d="M4.2 3.1 L19.6 9.4 C20.5 9.8 20.4 11.1 19.5 11.4 L13.3 13.3 L11.4 19.5 C11.1 20.4 9.8 20.5 9.4 19.6 L3.1 4.2 C2.8 3.5 3.5 2.8 4.2 3.1 Z"
+        fill="#FFA629" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/>
+</svg>

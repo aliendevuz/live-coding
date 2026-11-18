@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Duet signaling - one-shot WebRTC offer/answer mailbox (Lambda Function URL + DynamoDB)
+
+Parameters:
+  RoomTtlSeconds:
+    Type: Number
+    Default: 3600
+    Description: How long an offer/answer record lives before DynamoDB deletes it.
+
+Resources:
+  RoomsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  SignalingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      CodeUri: src/
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          TABLE: !Ref RoomsTable
+          TTL_SECONDS: !Ref RoomTtlSeconds
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RoomsTable
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins: ["*"]
+          AllowMethods: [GET, PUT, DELETE]
+          AllowHeaders: [content-type, x-room-key]
+          MaxAge: 3600
+
+Outputs:
+  SignalingUrl:
+    Description: Paste this into Duet -> Settings -> Signaling URL
+    Value: !GetAtt SignalingFunctionUrl.FunctionUrl

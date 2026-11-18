@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="560" viewBox="0 0 1500 560" font-family="Segoe UI" font-size="34" fill="#ccc">
+<rect width="1500" height="560" fill="#1a1a1d"/>
+<image href="out-a/icon.png" x="60" y="60" width="380" height="380"/><text x="250" y="510" text-anchor="middle">A — ikki kursor</text>
+<image href="out-b/icon.png" x="560" y="60" width="380" height="380"/><text x="750" y="510" text-anchor="middle">B — pufakcha + kod</text>
+<image href="out-c/icon.png" x="1060" y="60" width="380" height="380"/><text x="1250" y="510" text-anchor="middle">C — ikki doira (duet)</text>
+</svg>

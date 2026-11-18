@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS shows this when Duet first asks for the microphone (lesson audio). -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Duet uses the microphone so you can talk with your teacher or student during a live lesson.</string>
+</dict>
+</plist>

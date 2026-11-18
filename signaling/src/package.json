@@ -1,0 +1,6 @@
+{
+  "name": "duet-signaling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Duet WebRTC signaling (offer/answer mailbox). No dependencies: the Lambda Node.js runtime ships the AWS SDK v3."
+}

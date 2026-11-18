@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="64" y="64" width="896" height="896" rx="210" fill="#F4EEE4"/>
+  <g fill="none" stroke-width="92" stroke-linecap="round" stroke-linejoin="round">
+    <!-- teacher: left bracket -->
+    <path d="M372 322 L212 512 L372 702" stroke="#1C1B1F"/>
+    <!-- student: right bracket -->
+    <path d="M652 322 L812 512 L652 702" stroke="#F24822"/>
+  </g>
+  <!-- shared live caret in the middle -->
+  <rect x="482" y="352" width="60" height="320" rx="30" fill="#1C1B1F"/>
+  <rect x="482" y="512" width="60" height="160" rx="30" fill="#F24822"/>
+  <rect x="482" y="482" width="60" height="60" fill="#F24822"/>
+</svg>
