@@ -65,7 +65,11 @@ export function canRun(path: string) {
 // type duplicate replies into the shell.
 const AUTO_REPLY = /^(\x1b\[\??[\d;]*[cRn]|\x1b\[[IO]|\x1b\][\d;]*[^\x07]*\x07)+$/;
 
-type Events = { list: TermView[] };
+type Events = {
+  list: TermView[];
+  /** Show this terminal: `remote` when the partner pressed Run. */
+  reveal: { id: number; remote: boolean };
+};
 
 export class Terminals extends Emitter<Events> {
   views = new Map<number, TermView>();
@@ -159,31 +163,66 @@ export class Terminals extends Emitter<Events> {
   }
 
   /** Run a file: in a fresh terminal, or as a static site for HTML. */
-  async run(path: string) {
-    if (this.s.role === "guest") return this.s.rpc.call("term.run", { path });
+  /**
+   * Run a file. The same "Run: file" terminal is reused, so earlier output
+   * stays above for comparison; whoever pressed Run gets the panel shown.
+   */
+  async run(path: string): Promise<void> {
+    if (this.s.role === "guest") {
+      const id = await this.s.rpc.call<number>("term.run", { path });
+      this.revealWhenListed(id, false);
+      return;
+    }
+    const id = await this.hostRun(path);
+    this.emit("reveal", { id, remote: false });
+    this.s.rpc.notify("term.reveal", { id });
+  }
+
+  private async hostRun(path: string): Promise<number> {
     await this.s.files.flush();
     const ext = path.split(".").pop()?.toLowerCase() ?? "";
     if (ext === "html" || ext === "htm") return this.runHtml(path);
     const cmd = RUNNERS[ext];
     if (!cmd) throw new Error(`Don't know how to run .${ext} files`);
     const title = `Run: ${basename(path)}`;
-    for (const v of this.views.values()) if (v.title === title) await this.kill(v.id);
+    const existing = [...this.views.values()].find((v) => v.title === title && v.alive);
+    if (existing) {
+      // Stop a program that may still be running, then run again below it.
+      this.input(existing.id, "\x03");
+      setTimeout(() => this.input(existing.id, cmd(path) + "\r"), 150);
+      return existing.id;
+    }
     const id = await this.spawn(title);
     // Give the shell a moment to print its prompt before typing.
     setTimeout(() => this.input(id, cmd(path) + "\r"), 400);
+    return id;
   }
 
-  private async runHtml(path: string) {
+  /** Guest: the terminal may not be in our list yet when its id arrives. */
+  private revealWhenListed(id: number, remote: boolean) {
+    if (this.views.has(id)) return this.emit("reveal", { id, remote });
+    const off = this.on("list", () => {
+      if (!this.views.has(id)) return;
+      off();
+      this.emit("reveal", { id, remote });
+    });
+    setTimeout(off, 5000);
+  }
+
+  private async runHtml(path: string): Promise<number> {
     const title = `Static server :${STATIC_PORT}`;
-    if (![...this.views.values()].some((v) => v.title === title && v.alive)) {
-      const id = await this.spawn(title);
-      setTimeout(() => this.input(id, `python -m http.server ${STATIC_PORT} --bind 127.0.0.1\r`), 400);
+    let id = [...this.views.values()].find((v) => v.title === title && v.alive)?.id;
+    if (id == null) {
+      const nid = await this.spawn(title);
+      id = nid;
+      setTimeout(() => this.input(nid, `python -m http.server ${STATIC_PORT} --bind 127.0.0.1\r`), 400);
       await new Promise((r) => setTimeout(r, 1200));
     }
     this.s.tunnels.share(STATIC_PORT);
     const url = `http://localhost:${STATIC_PORT}/${path.split("/").map(encodeURIComponent).join("/")}`;
     void openUrl(url);
     this.s.rpc.notify("preview", { port: STATIC_PORT, path });
+    return id;
   }
 
   input(id: number, data: string) {
@@ -208,7 +247,12 @@ export class Terminals extends Emitter<Events> {
     });
     rpc.handle("term.create", ({ title }) => (allowed(), this.spawn(title)));
     rpc.handle("term.kill", ({ id }) => (allowed(), this.kill(id)));
-    rpc.handle("term.run", ({ path }) => (allowed(), this.run(path)));
+    rpc.handle("term.run", async ({ path }) => {
+      allowed();
+      const id = await this.hostRun(path);
+      this.emit("reveal", { id, remote: true });
+      return id;
+    });
 
     void listen<{ id: number; code: number | null }>("pty-exit", (e) => {
       const v = this.views.get(e.payload.id);
@@ -332,6 +376,7 @@ export class Terminals extends Emitter<Events> {
       this.emit("list", this.list());
     });
     rpc.on("term.resize", ({ id, cols, rows }) => this.views.get(id)?.term.resize(cols, rows));
+    rpc.on("term.reveal", ({ id }) => this.revealWhenListed(id, true));
     this.s.link.on("term", (buf) => this.onTermFrame(buf));
     this.s.link.on("open", () => this.early.clear());
   }

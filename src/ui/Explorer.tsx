@@ -638,7 +638,7 @@ export function Explorer({ session, activePath, peerPath, peerColor, onOpen }: P
                 <span className="chev">
                   {r.dir ? expanded.has(r.path) ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : null}
                 </span>
-                {r.dir ? <FolderIcon open={expanded.has(r.path)} /> : <FileIcon name={r.name} />}
+                {r.dir ? <FolderIcon name={r.name} open={expanded.has(r.path)} /> : <FileIcon name={r.name} />}
                 {editing?.kind === "rename" && editing.path === r.path ? (
                   <InlineInput
                     initial={r.name}

@@ -63,6 +63,12 @@ pub fn kernel_start(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // The kernel inherits this environment: with the venv first on PATH,
+    // `!pip install x` in a cell installs into the kernel's own Python.
+    if let Some(venv) = crate::venv::of_python(&python) {
+        let (key, path, ve) = crate::venv::activation(&venv);
+        cmd.env(key, path).env("VIRTUAL_ENV", ve);
+    }
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     let mut child = cmd.spawn().map_err(|e| format!("Could not start {python}: {e}"))?;

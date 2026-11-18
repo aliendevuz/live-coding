@@ -15,7 +15,7 @@ ketadi.
 | Fayllar | Guestga faqat nomlar ko'rinadi, papkalar ochilganda yuklanadi. Fayl faqat so'ralganda yuboriladi. 2 MB dan katta matn fayllari jonli sinxronlanmaydi (read-only ochish mumkin). Rasmlar ko'rsatiladi. Binary fayllarni yuklab olish mumkin. Guest tomonda hash bo'yicha cache bor. |
 | Clone | Guest Explorer'dagi ⤓ tugmasi bilan joyni o'zi tanlab, loyihani o'ziga ko'chiradi. `.env*` (`.env.example` dan tashqari), `node_modules`, `.venv`/`venv`/`env`, `.git`, `__pycache__`, `target`, `dist`, `build`, `.next` va `.gitignore`'dagi narsalar ko'chirilmaydi. |
 | Terminal | Haqiqiy PowerShell hostda ishlaydi (ConPTY). Bir nechta tab ochish mumkin, hammasi guestga ko'rinadi. Guest faqat host ruxsat berganda yozadi (🔒/🔓 tugmasi). Bu ruxsatni host tomoni ham tekshiradi. |
-| Run (F5) | `.py` `.js` `.ts` `.ps1` `.go` `.rb` `.php` `.java` `.c` `.cpp` fayllari alohida terminalda ishga tushadi. `.html` bo'lsa :5500 portda statik server ko'tariladi va port avtomatik ulashiladi. |
+| Run (F5) | `.py` `.js` `.ts` `.ps1` `.go` `.rb` `.php` `.java` `.c` `.cpp` fayllari alohida terminalda ishga tushadi. `.html` bo'lsa :5500 portda statik server ko'tariladi va port avtomatik ulashiladi. Qayta bosilganda o'sha "Run" terminali ishlatiladi: avval ishlab turgan dastur to'xtatiladi, eski natijalar esa solishtirish uchun yuqorida qoladi. Terminal paneli yashirin bo'lsa, u ochiladi va natija ko'rinadi. |
 | Port tunnel | Host Ports panelidan portni ulashadi (masalan Vite 5173). Shu port guestning `localhost`'ida ham ochiladi, agar band bo'lsa boshqa portda ochiladi. |
 | Audio | Mikrofonda echo cancellation va noise suppression yoqilgan. Mute tugmasi bor, gapirayotgan odamning avatari yonadi. |
 | Pointer va chizish | Sherigingizning sichqonchasi nomi bilan ko'rinadi. Laser (`Ctrl+Alt+L`), Pen (`Ctrl+Alt+P`), Highlighter (`Ctrl+Alt+H`), tozalash `Ctrl+Alt+C`, chiqish `Esc`. Kod ustidagi chiziq qator va ustunga bog'lanadi, shuning uchun ekran o'lchami boshqa bo'lsa ham to'g'ri joyda turadi va kod bilan birga scroll bo'ladi. |
@@ -39,6 +39,7 @@ ketadi.
 - Har bir notebook uchun alohida kernel ishlaydi. Kernel Duet bilan birga to'xtaydi.
 - Windows'da Interrupt Python kodini darhol to'xtatadi, lekin `time.sleep()` yoki bloklovchi I/O chaqiruvni u tugagandan keyingina to'xtatadi. Bu ipykernel'ning Windows'dagi cheklovi, JupyterLab'da ham shunday. Kutib bo'lmasa, **Restart** bosing.
 - Bitta natija 8 MB'dan katta bo'lsa, u jonli ulashilmaydi. O'rniga shu haqda yozuv chiqadi.
+- **Virtual muhit (v5.1).** Kernel venv'dagi Python bilan ishga tushsa, o'sha venv PATH'ning boshiga qo'yiladi va `VIRTUAL_ENV` o'rnatiladi. Shuning uchun hujayradagi `!pip install pandas` paketni kernel'ning o'z muhitiga o'rnatadi, global Python'ga emas. `%pip install` ham ishlaydi. Loyihada venv bo'lsa, yangi terminallar ham uni faollashtirilgan holda ochiladi, xuddi VS Code'dagidek.
 
 ## macOS (o'quvchi Mac'da bo'lsa)
 
@@ -142,7 +143,7 @@ Narxi: bitta dars uchun bir necha o'nlab so'rov ketadi (kutish paytida har 1–2
 npm run test:signaling                                   # Lambda mantig'i
 node scripts/check-signaling.mjs <URL>                   # deploy qilingan Lambda'ni tekshirish
 cd src-tauri; cargo test                                 # path himoyasi, istisnolar
-npx tauri build --debug --no-bundle; node scripts/e2e.mjs # ikki haqiqiy oyna, 88 ta tekshiruv; notebook testlari uchun DUET_E2E_PYTHON_DIR = ipykernel bor Python'ning Scripts papkasi
+npx tauri build --debug --no-bundle; node scripts/e2e.mjs # ikki haqiqiy oyna, 96 ta tekshiruv; notebook testlari uchun DUET_E2E_PYTHON_DIR = ipykernel bor Python'ning Scripts papkasi
 ```
 
 `e2e.mjs` bitta kompyuterda ikkita Duet oynasini ochadi (host va guest) va ularni WebView2 DevTools orqali boshqaradi. U quyidagilarni tekshiradi: ulanish, fayl ro'yxati va ignore qoidalari, path traversal'ning bloklanishi, tahrirning ikki yo'nalishda diskka yetishi, 3 MB faylni uzatish va cache, clone, terminal va ruxsatlar, Run, follow, tunnel (HTTP, 3 MB, 8 ta parallel so'rov), audio oqimi, chat, pointer, uzilib qayta ulanish.
@@ -189,3 +190,7 @@ WebRTC kanallari: `ctrl` (JSON RPC), `yjs`, `cursor` (unreliable), `bulk` va `te
 - IntelliSense hozircha Python va JS/TS uchun. Go, Rust, C/C++ va Java'da faqat so'z bo'yicha taklif ishlaydi. Rename va formatlash keyingi versiyada.
 - Bitta xonaga bitta host va bitta guest ulanadi.
 - Ikkala tomonda realtime ishlaydigan `.git`'ga o'xshash tarix keyinga qoldirilgan.
+
+## Uchinchi tomon resurslari
+
+- Fayl va papka ikonkalari: [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (Philipp Kief va hissa qo'shganlar, MIT litsenziyasi). `npm run icons` ularni `public/material-icons` papkasiga ko'chiradi; bu `dev` va `build`'dan oldin avtomatik bajariladi.

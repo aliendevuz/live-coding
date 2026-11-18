@@ -1,47 +1,60 @@
-import {
-  File,
-  FileCode,
-  FileImage,
-  FileJson,
-  FileTerminal,
-  FileText,
-  Folder,
-  FolderOpen,
-  Lock,
-  type LucideIcon,
-} from "lucide-react";
+// File and folder icons: Material Icon Theme (PKief, MIT), resolved the way
+// VS Code resolves an icon theme. scripts/gen-icon-map.mjs copies the SVGs to
+// public/material-icons and writes the mapping imported here.
 
-const CODE: Record<string, string> = {
-  py: "#4B8BBE", js: "#E8C547", mjs: "#E8C547", cjs: "#E8C547", ts: "#3178C6", tsx: "#3178C6", jsx: "#61DAFB",
-  html: "#E44D26", htm: "#E44D26", css: "#663399", scss: "#C6538C", less: "#1D365D", java: "#E76F00",
-  c: "#A8B9CC", h: "#A8B9CC", cpp: "#F34B7D", cs: "#9B4F96", go: "#00ADD8", rs: "#DEA584", php: "#8892BF",
-  rb: "#CC342D", sql: "#E38C00", vue: "#41B883", svelte: "#FF3E00", kt: "#A97BFF", swift: "#F05138",
-  dart: "#0175C2", lua: "#6C78FC", r: "#276DC3", xml: "#E37933", yaml: "#CB171E", yml: "#CB171E", toml: "#9C4221",
-};
-const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "avif"]);
-const TEXT = new Set(["md", "txt", "rst", "log", "csv"]);
-const SHELL = new Set(["ps1", "bat", "cmd", "sh"]);
+import map from "./material-icons.json";
+import { monaco } from "./monaco-setup";
 
-export function fileIcon(name: string): { Icon: LucideIcon; color: string } {
+interface IconMap {
+  file: string;
+  folder: string;
+  folderExpanded: string;
+  fileNames: Record<string, string>;
+  fileExtensions: Record<string, string>;
+  folderNames: Record<string, string>;
+  folderNamesExpanded: Record<string, string>;
+  languageIds: Record<string, string>;
+  files: Record<string, string>;
+}
+const M = map as IconMap;
+
+let extToLanguage: Map<string, string> | null = null;
+function languageOfExt(ext: string): string | undefined {
+  if (!extToLanguage) {
+    extToLanguage = new Map();
+    for (const l of monaco.languages.getLanguages()) for (const e of l.extensions ?? []) extToLanguage.set(e.replace(/^\./, "").toLowerCase(), l.id);
+  }
+  return extToLanguage.get(ext);
+}
+
+const url = (id: string) => `/material-icons/${M.files[id] ?? `${id}.svg`}`;
+
+/** Icon id for a file name: exact name, then the longest extension, then its language. */
+export function fileIconId(name: string): string {
   const lower = name.toLowerCase();
-  const ext = lower.split(".").pop() ?? "";
-  if (lower === ".env" || lower.startsWith(".env.")) return { Icon: Lock, color: "#E5C07B" };
-  if (ext === "json") return { Icon: FileJson, color: "#CBCB41" };
-  if (IMAGE.has(ext)) return { Icon: FileImage, color: "#A074C4" };
-  if (SHELL.has(ext)) return { Icon: FileTerminal, color: "#4EC9B0" };
-  if (TEXT.has(ext)) return { Icon: FileText, color: "#8AA4B8" };
-  if (ext in CODE) return { Icon: FileCode, color: CODE[ext] };
-  return { Icon: File, color: "#8B949E" };
+  if (M.fileNames[lower]) return M.fileNames[lower];
+  const parts = lower.split(".");
+  for (let i = 1; i < parts.length; i++) {
+    const ext = parts.slice(i).join(".");
+    if (M.fileExtensions[ext]) return M.fileExtensions[ext];
+  }
+  const lang = parts.length > 1 ? languageOfExt(parts[parts.length - 1]) : undefined;
+  if (lang && M.languageIds[lang]) return M.languageIds[lang];
+  return M.file;
 }
 
-export function FileIcon({ name, size = 15 }: { name: string; size?: number }) {
-  const { Icon, color } = fileIcon(name);
-  return <Icon size={size} color={color} strokeWidth={1.75} style={{ flex: "none" }} />;
+export function folderIconId(name: string, open: boolean): string {
+  const lower = name.toLowerCase();
+  const id = open ? M.folderNamesExpanded[lower] : M.folderNames[lower];
+  return id ?? (open ? M.folderExpanded : M.folder);
 }
 
-export function FolderIcon({ open, size = 15 }: { open: boolean; size?: number }) {
-  const Icon = open ? FolderOpen : Folder;
-  return <Icon size={size} color="#C09553" strokeWidth={1.75} style={{ flex: "none" }} />;
+export function FileIcon({ name, size = 16 }: { name: string; size?: number }) {
+  return <img className="mi" src={url(fileIconId(name))} width={size} height={size} alt="" draggable={false} />;
+}
+
+export function FolderIcon({ name = "", open, size = 16 }: { name?: string; open: boolean; size?: number }) {
+  return <img className="mi" src={url(folderIconId(name, open))} width={size} height={size} alt="" draggable={false} />;
 }
 
 /** The Duet mark: two voices (teacher and student) overlapping, and a Figma-style cursor. */

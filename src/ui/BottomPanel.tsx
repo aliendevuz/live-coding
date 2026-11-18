@@ -8,7 +8,7 @@ import { useEvent } from "./hooks";
 
 type PanelTab = { kind: "term"; id: number } | { kind: "ports" } | { kind: "transfers" };
 
-export function BottomPanel({ session, canTerm }: { session: Session; canTerm: boolean }) {
+export function BottomPanel({ session, canTerm, follow }: { session: Session; canTerm: boolean; follow: boolean }) {
   const terms = useEvent(session.terms, "list", session.terms.list());
   const ports = useEvent(session.tunnels, "ports", session.tunnels.ports);
   const transfers = useEvent(session.files, "transfers", session.files.transfers);
@@ -25,6 +25,17 @@ export function BottomPanel({ session, canTerm }: { session: Session; canTerm: b
     if (added != null) setTab({ kind: "term", id: added });
     else if (tab.kind === "term" && !ids.includes(tab.id)) setTab(ids.length ? { kind: "term", id: ids[ids.length - 1] } : { kind: "ports" });
   }, [terms]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Run: switch to its terminal (the partner's Run only while following).
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  useEffect(
+    () =>
+      session.terms.on("reveal", ({ id, remote }) => {
+        if (!remote || followRef.current) setTab({ kind: "term", id });
+      }),
+    [session],
+  );
 
   const shown: TermView | undefined = tab.kind === "term" ? terms.find((t) => t.id === tab.id) : undefined;
 

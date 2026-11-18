@@ -1,7 +1,7 @@
 {
   "name": "duet",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "signaling": "node signaling/dev-server.mjs",
-    "test:signaling": "node signaling/test.mjs"
+    "test:signaling": "node signaling/test.mjs",
+    "icons": "node scripts/gen-icon-map.mjs",
+    "predev": "node scripts/gen-icon-map.mjs",
+    "prebuild": "node scripts/gen-icon-map.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -24,6 +27,7 @@
     "lucide-react": "^1.75.0",
     "marked": "^18.2.1",
     "marked-katex-extension": "^5.1.13",
+    "material-icon-theme": "^5.40.0",
     "monaco-editor": "^0.57.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

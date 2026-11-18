@@ -206,6 +206,18 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  // Run shows its output: the panel opens for whoever pressed Run, and for
+  // the partner only while they follow.
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  useEffect(
+    () =>
+      session.terms.on("reveal", ({ remote }) => {
+        if (!remote || followRef.current) setLayout({ panel: true });
+      }),
+    [session, setLayout],
+  );
+
   // Our open panes, for the partner's visibility preview.
   const publishLayout = useCallback(
     () => session.awareness.setLocalStateField("layout", { explorer: showExplorer, panel: layout.panel, chat: showChat }),
@@ -473,7 +485,7 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
             <div className="splitter-h" onMouseDown={(e) => startDrag(e, "y", layout.bottomH, 80, mainH * 0.8, true, (v) => setLayout({ bottomH: v }))} />
           )}
           <div className="bottom-wrap" style={{ height: `min(${layout.bottomH}px, 45%)`, display: layout.panel ? "" : "none" }}>
-            <BottomPanel session={session} canTerm={canTerm} />
+            <BottomPanel session={session} canTerm={canTerm} follow={follow} />
           </div>
         </div>
         {showChat && (

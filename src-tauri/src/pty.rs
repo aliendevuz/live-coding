@@ -72,6 +72,12 @@ pub fn pty_spawn(
         .map_err(|e| e.to_string())?;
     let mut cmd = default_shell();
     if let Some(dir) = cwd.filter(|d| std::path::Path::new(d).is_dir()) {
+        // Terminals in a project with a venv start "activated", like VS Code's.
+        if let Some(venv) = crate::venv::find_in(std::path::Path::new(&dir)) {
+            let (key, path, ve) = crate::venv::activation(&venv);
+            cmd.env(key, path);
+            cmd.env("VIRTUAL_ENV", ve);
+        }
         cmd.cwd(dir);
     }
     cmd.env("TERM", "xterm-256color");

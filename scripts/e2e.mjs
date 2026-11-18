@@ -546,6 +546,67 @@ await guest.shot(path.join(SHOTS, "duet-narrow.png"));
 await guest.send("Emulation.clearDeviceMetricsOverride", {});
 await sleep(400);
 
+// ---- v5.1: Run shows its output and continues in the same terminal ----
+fs.writeFileSync(path.join(proj, "run_me.py"), 'import random\nprint("run", random.randint(1000, 9999))\n');
+await host.eval(`document.querySelector('[data-path="run_me.py"]')?.click()`);
+await sleep(400);
+await host.eval(`document.querySelector('[data-path="run_me.py"]')?.click()`);
+await host.until(`return document.querySelector(".tab.active")?.textContent.includes("run_me.py")`, 5000);
+if (await shown(host, "panel")) await host.combo(["ctrl"], "`", "Backquote", 192);
+ok(!(await shown(host, "panel")), "panel hidden before Run");
+await host.eval(`document.querySelector(".run-btn").click()`);
+ok(await host.until(`return !!document.querySelector('[data-anchor="panel"]')?.offsetParent && document.querySelector(".ptab.active")?.textContent.includes("run_me.py")`, 5000), "Run opens the hidden panel on its terminal");
+const termCount = await host.eval(`return ${S}.terms.views.size`);
+const runText = `const v = [...${S}.terms.views.values()].find(v => v.title === "Run: run_me.py"); if (!v) return ""; const b = v.term.buffer.active; let s = ""; for (let i = 0; i < b.length; i++) s += b.getLine(i).translateToString(true) + "\\n"; return s`;
+await host.until(`return ((() => { ${runText} })().match(/run \\d{4}/g) ?? []).length >= 1`, 15000);
+await host.eval(`document.querySelector(".run-btn").click()`);
+ok(await host.until(`return ((() => { ${runText} })().match(/run \\d{4}/g) ?? []).length >= 2`, 15000), "Run again continues in the same terminal, earlier output kept");
+ok((await host.eval(`return ${S}.terms.views.size`)) === termCount, "no extra terminal per run");
+
+// ---- v5.1: a project venv is active in new terminals (like VS Code) ----
+const vproj = path.join(proj, ".venv");
+await new Promise((res) => spawn("python", ["-m", "venv", "--without-pip", vproj], { stdio: "ignore" }).on("exit", res));
+const vt = await host.eval(`return await ${S}.terms.create("venv check")`);
+await sleep(1500);
+await host.eval(`${S}.terms.input(${vt}, "python -c \\"import sys; print('PFX=' + sys.prefix)\\"\\r")`);
+const termText = (id) => `const v = ${S}.terms.views.get(${id}); const b = v.term.buffer.active; let s = ""; for (let i = 0; i < b.length; i++) s += b.getLine(i).translateToString(true); return s`;
+ok(
+  await host.until(`return /PFX=.*\\.venv/i.test((() => { ${termText(vt)} })())`, 15000),
+  "terminal python is the project's .venv",
+);
+await host.eval(`await ${S}.terms.kill(${vt})`);
+
+// ---- v5.1: drawing tools stay clickable while drawing ----
+await host.combo(["ctrl", "alt"], "p", "KeyP", 80);
+ok(await host.until(`return document.querySelector(".overlay")?.classList.contains("drawing")`, 3000), "pen mode on");
+const laserBtn = await host.center('.toolbar .tool[title^="Laser"]');
+await host.mouse("mousePressed", laserBtn.x, laserBtn.y);
+await host.mouse("mouseReleased", laserBtn.x, laserBtn.y);
+ok(await host.until(`return document.querySelector('.toolbar .tool[title^="Laser"]').classList.contains("active")`, 3000), "toolbar is clickable while drawing (pen -> laser)");
+// Draw a smooth highlighter curve and a pen wave for the screenshot.
+await host.combo(["ctrl", "alt"], "h", "KeyH", 72);
+const ed = await host.center(".editor-wrap");
+const wave = async (dy, steps = 40) => {
+  await host.mouse("mousePressed", ed.x - 250, ed.y + dy);
+  for (let i = 1; i <= steps; i++) await host.mouse("mouseMoved", ed.x - 250 + i * 12, ed.y + dy + Math.sin(i / 4) * 30);
+  await host.mouse("mouseReleased", ed.x - 250 + steps * 12, ed.y + dy);
+};
+await wave(-120);
+await host.combo(["ctrl", "alt"], "p", "KeyP", 80);
+await wave(-20);
+await host.key("Escape", "Escape", 27);
+await sleep(400);
+
+// ---- v5.1: Material icons in the explorer ----
+const icons = await host.eval(`return {
+  py: document.querySelector('[data-path="calc.py"] img.mi')?.getAttribute("src"),
+  nb: document.querySelector('[data-path="lesson.ipynb"] img.mi')?.getAttribute("src"),
+  src: document.querySelector('[data-path="src"] img.mi')?.getAttribute("src"),
+  ok: [...document.querySelectorAll(".tree img.mi")].every(i => i.complete && i.naturalWidth > 0) }`);
+ok(icons.py?.endsWith("/python.svg") && icons.nb?.includes("jupyter") && icons.src?.includes("folder-src") && icons.ok, "Material file and folder icons load", JSON.stringify(icons));
+await host.shot(path.join(SHOTS, "duet-drawing.png"));
+await host.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", ctrlKey: true, altKey: true }))`);
+
 // ---- reconnect ----
 const tr = Date.now();
 await guest.eval(`${S}.link.pc.close()`);

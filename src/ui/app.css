@@ -442,3 +442,6 @@ button.sb-item:hover { color: var(--fg); background: none !important; }
   .lobby .split { grid-template-columns: 1fr; }
   .lobby-card { padding: 20px; }
 }
+.mi { flex: none; display: block; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+/* Drawing tools stay usable while drawing: the title bar sits above the canvas. */
+.titlebar { position: relative; z-index: 920; }

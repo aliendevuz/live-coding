@@ -3,6 +3,7 @@ mod kernel;
 mod lsp;
 mod pty;
 mod tunnel;
+mod venv;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

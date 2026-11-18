@@ -25,6 +25,112 @@ interface Stroke {
 }
 
 const LASER_FADE_MS = 1200;
+
+type P = { x: number; y: number };
+
+/** Chaikin corner cutting: turns a sampled polyline into a smooth curve. */
+function smooth(pts: P[], rounds = 2): P[] {
+  let out = pts;
+  for (let r = 0; r < rounds && out.length > 2; r++) {
+    const next: P[] = [out[0]];
+    for (let i = 0; i < out.length - 1; i++) {
+      const a = out[i];
+      const b = out[i + 1];
+      next.push({ x: 0.75 * a.x + 0.25 * b.x, y: 0.75 * a.y + 0.25 * b.y }, { x: 0.25 * a.x + 0.75 * b.x, y: 0.25 * a.y + 0.75 * b.y });
+    }
+    next.push(out[out.length - 1]);
+    out = next;
+  }
+  return out;
+}
+
+/** Screen points of a stroke, split where a point is missing or off screen. */
+function runsOf(s: Stroke, now: number, maxAge = Infinity): { p: P; age: number }[][] {
+  const runs: { p: P; age: number }[][] = [];
+  let run: { p: P; age: number }[] = [];
+  for (const pt of s.pts) {
+    // A point lost on the unreliable channel is simply bridged.
+    if (!pt) continue;
+    const age = now - pt.t;
+    const q = age <= maxAge ? fromAnchor(pt.a) : null;
+    if (!q) {
+      if (run.length) runs.push(run);
+      run = [];
+      continue;
+    }
+    run.push({ p: q, age });
+  }
+  if (run.length) runs.push(run);
+  return runs;
+}
+
+function tracePath(ctx: CanvasRenderingContext2D, pts: P[]) {
+  ctx.moveTo(pts[0].x, pts[0].y);
+  if (pts.length === 1) ctx.lineTo(pts[0].x + 0.01, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+}
+
+/**
+ * Pen and highlighter: one path per run, so a translucent highlighter never
+ * darkens where segments meet. Laser: opaque, tapering by age, drawn on its
+ * own canvas and composited with a glow, so it fades as one smooth trail.
+ */
+function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke, now: number, laser: HTMLCanvasElement) {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (s.tool === "pen" || s.tool === "highlighter") {
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = s.tool === "pen" ? s.color : "rgba(255, 221, 0, 0.32)";
+    ctx.lineWidth = s.tool === "pen" ? 3 : 20;
+    for (const run of runsOf(s, now)) {
+      ctx.beginPath();
+      tracePath(ctx, smooth(run.map((r) => r.p)));
+      ctx.stroke();
+    }
+    return;
+  }
+  const runs = runsOf(s, now, LASER_FADE_MS).filter((r) => r.length);
+  if (!runs.length) return;
+  const dpr = devicePixelRatio || 1;
+  if (laser.width !== innerWidth * dpr || laser.height !== innerHeight * dpr) {
+    laser.width = innerWidth * dpr;
+    laser.height = innerHeight * dpr;
+  }
+  const lc = laser.getContext("2d")!;
+  lc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  lc.clearRect(0, 0, innerWidth, innerHeight);
+  lc.lineCap = "round";
+  lc.lineJoin = "round";
+  lc.strokeStyle = "#ff3b3b";
+  for (const run of runs) {
+    // Smooth the positions, carry each point's age along by index.
+    const pts = smooth(run.map((r) => r.p));
+    const ageAt = (i: number) => run[Math.min(run.length - 1, Math.round((i / Math.max(1, pts.length - 1)) * (run.length - 1)))].age;
+    for (let i = 1; i < pts.length; i++) {
+      const life = 1 - ageAt(i) / LASER_FADE_MS;
+      if (life <= 0) continue;
+      lc.lineWidth = 1 + 4 * life; // the tail thins out instead of turning into dots
+      lc.beginPath();
+      lc.moveTo(pts[i - 1].x, pts[i - 1].y);
+      lc.lineTo(pts[i].x, pts[i].y);
+      lc.stroke();
+    }
+    if (pts.length === 1) {
+      lc.beginPath();
+      lc.arc(pts[0].x, pts[0].y, 2.5, 0, Math.PI * 2);
+      lc.fillStyle = "#ff3b3b";
+      lc.fill();
+    }
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = s.ended ? Math.max(0, 1 - (now - s.last) / LASER_FADE_MS) : 1;
+  ctx.shadowColor = "rgba(255, 30, 30, 0.9)";
+  ctx.shadowBlur = 10 * dpr;
+  ctx.drawImage(laser, 0, 0);
+  ctx.restore();
+}
 const SEND_HZ = 40;
 
 function toAnchor(x: number, y: number): Anchor | null {
@@ -218,7 +324,12 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
       strokes.current.set(cur.id, cur);
       add(e);
     };
-    const move = (e: PointerEvent) => cur && add(e);
+    const move = (e: PointerEvent) => {
+      if (!cur) return;
+      // The browser batches fast moves; take every sample for a smooth line.
+      const all = e.getCoalescedEvents?.() ?? [];
+      for (const ce of all.length ? all : [e]) add(ce);
+    };
     const up = (e: PointerEvent) => {
       if (!cur) return;
       add(e, true);
@@ -246,6 +357,7 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
   useEffect(() => {
     const cv = canvasRef.current!;
     const ctx = cv.getContext("2d")!;
+    const laserCanvas = document.createElement("canvas");
     let raf = 0;
     let cur: { x: number; y: number } | null = null;
     const frame = () => {
@@ -260,52 +372,14 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
       const now = performance.now();
 
       for (const s of strokes.current.values()) {
-        const tool = s.tool;
-        if (tool === "laser" && s.ended && now - s.last > LASER_FADE_MS) {
+        if (s.tool === "laser" && s.ended && now - s.last > LASER_FADE_MS) {
           strokes.current.delete(s.id);
           continue;
         }
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        let prev: { x: number; y: number } | null = null;
-        for (const p of s.pts) {
-          if (!p) continue; // lost on the unreliable channel: just bridge the gap
-          const q = fromAnchor(p.a);
-          if (!q) {
-            prev = null;
-            continue;
-          }
-          if (prev) {
-            if (tool === "laser") {
-              const age = now - p.t;
-              const alpha = Math.max(0, 1 - age / LASER_FADE_MS);
-              if (alpha <= 0) {
-                prev = q;
-                continue;
-              }
-              ctx.strokeStyle = `rgba(255, 60, 60, ${alpha})`;
-              ctx.shadowColor = "rgba(255,0,0,0.8)";
-              ctx.shadowBlur = 8;
-              ctx.lineWidth = 4;
-            } else if (tool === "highlighter") {
-              ctx.shadowBlur = 0;
-              ctx.strokeStyle = "rgba(255, 230, 0, 0.28)";
-              ctx.lineWidth = 18;
-              ctx.lineCap = "butt";
-            } else {
-              ctx.shadowBlur = 0;
-              ctx.strokeStyle = s.color;
-              ctx.lineWidth = 3;
-            }
-            ctx.beginPath();
-            ctx.moveTo(prev.x, prev.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.stroke();
-          }
-          prev = q;
-        }
+        drawStroke(ctx, s, now, laserCanvas);
       }
       ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
 
       // Remote pointer: ease toward the target every frame (Figma-style smooth motion).
       const el = pointerRef.current!;
