@@ -10,19 +10,23 @@ import type { Link } from "../net/link";
 
 const MSG_SYNC = 0;
 const MSG_AWARENESS = 1;
+/** At most one repair request per this long. */
+const RESYNC_GAP_MS = 2000;
 
 export class YSync {
   private started = false;
   private early: Uint8Array[] = [];
   private remoteClients = new Set<number>();
   private offDoc: (() => void) | null = null;
+  private lastResync = 0;
+  private resyncTimer = 0;
 
   constructor(
     private link: Link,
     public doc: Y.Doc,
     public awareness: awarenessProtocol.Awareness,
   ) {
-    link.on("yjs", (data) => (this.started ? this.receive(data) : this.early.push(data)));
+    link.on("yjs", (data) => (this.started ? this.safeReceive(data) : this.early.push(data)));
     link.on("state", (s) => {
       if (s !== "connected") {
         this.started = false;
@@ -45,14 +49,49 @@ export class YSync {
   /** Call once both sides have exchanged hello on a new connection. */
   start() {
     this.started = true;
+    this.sendStep1();
+    this.sendAwareness([this.doc.clientID]);
+    const queued = this.early;
+    this.early = [];
+    queued.forEach((d) => this.safeReceive(d));
+  }
+
+  /**
+   * Ask the peer for everything we lack. The peer answers with one update
+   * computed from our state vector, which also fills any gap that left later
+   * updates stuck as "pending" (Yjs applies a client's changes strictly in order).
+   */
+  resync() {
+    if (!this.started) return;
+    const wait = this.lastResync + RESYNC_GAP_MS - Date.now();
+    if (wait > 0) {
+      if (!this.resyncTimer) this.resyncTimer = window.setTimeout(() => ((this.resyncTimer = 0), this.resync()), wait);
+      return;
+    }
+    this.sendStep1();
+  }
+
+  /** Some received changes are waiting for ones that never arrived. */
+  get stuck(): boolean {
+    return !!(this.doc.store.pendingStructs || this.doc.store.pendingDs);
+  }
+
+  private sendStep1() {
+    this.lastResync = Date.now();
     const enc = encoding.createEncoder();
     encoding.writeVarUint(enc, MSG_SYNC);
     syncProtocol.writeSyncStep1(enc, this.doc);
     this.link.sendYjs(encoding.toUint8Array(enc));
-    this.sendAwareness([this.doc.clientID]);
-    const queued = this.early;
-    this.early = [];
-    queued.forEach((d) => this.receive(d));
+  }
+
+  /** A throwing observer must not stop the sync (or the peer's next message). */
+  private safeReceive(data: Uint8Array) {
+    try {
+      this.receive(data);
+    } catch (e) {
+      console.error("yjs: message failed", e);
+    }
+    if (this.stuck) this.resync();
   }
 
   private bind() {

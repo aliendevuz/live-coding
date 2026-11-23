@@ -53,6 +53,15 @@ export class Signaling {
   getAnswer(epoch: string) {
     return this.req("GET", `/answer/${epoch}`);
   }
+  /** STUN/TURN servers with short-lived credentials; null if the server has no TURN configured. */
+  async getIce(): Promise<RTCIceServer[] | null> {
+    const headers: Record<string, string> = {};
+    if (this.roomKey) headers["x-room-key"] = this.roomKey;
+    const r = await fetch(`${this.baseUrl}/rooms/${this.room}/ice`, { headers });
+    if (!r.ok) return null;
+    const body = (await r.json()) as { iceServers?: RTCIceServer[] };
+    return Array.isArray(body.iceServers) && body.iceServers.length ? body.iceServers : null;
+  }
   close() {
     return this.req("DELETE", "").catch(() => null);
   }

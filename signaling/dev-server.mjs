@@ -3,10 +3,13 @@
 // Same logic as the Lambda (src/logic.mjs), in-memory store.
 import http from "node:http";
 import { handle } from "./src/logic.mjs";
+import { turnProvider } from "./src/turn.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 const TTL = 3600;
 const items = new Map();
+// Same env vars as the Lambda (CF_TURN_KEY_ID + CF_TURN_API_TOKEN, or TURN_URLS + TURN_SECRET).
+const turn = turnProvider();
 
 const live = (id) => {
   const it = items.get(id);
@@ -49,10 +52,11 @@ http
         { method: req.method, path: url.pathname, headers: req.headers, body: body || null },
         store,
         TTL,
+        turn,
       );
       console.log(req.method, url.pathname, "->", r.statusCode);
       res.writeHead(r.statusCode, { ...r.headers, ...CORS });
       res.end(r.body);
     });
   })
-  .listen(PORT, () => console.log(`Duet dev signaling on http://localhost:${PORT}`));
+  .listen(PORT, () => console.log(`Duet dev signaling on http://localhost:${PORT}${turn ? " (TURN on)" : " (no TURN: STUN only)"}`));

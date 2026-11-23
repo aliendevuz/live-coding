@@ -6,6 +6,8 @@
 //   PUT    /rooms/{room}/answer/{epoch}   guest answers that epoch      (first writer wins)
 //   GET    /rooms/{room}/answer/{epoch}   host polls for the answer
 //   DELETE /rooms/{room}                  host closes the room          (needs x-room-key)
+//   GET    /rooms/{room}/ice              STUN/TURN servers for this connection
+//                                         (host: x-room-key; guest: the room must have an offer)
 //
 // store: { get(id) -> item|null, put(item, cond) -> bool, del(id) }
 //   cond: { notExists: true } or { notExistsOrOwner: hash }; put returns false if cond fails.
@@ -32,8 +34,11 @@ function parseBody(raw) {
   }
 }
 
-/** req: { method, path, headers (lower-case keys), body (string|null) } */
-export async function handle(req, store, ttlSeconds) {
+/**
+ * req: { method, path, headers (lower-case keys), body (string|null) }
+ * turn: async () => RTCIceServer[], or null when no TURN is configured (see turn.mjs)
+ */
+export async function handle(req, store, ttlSeconds, turn = null) {
   const { method } = req;
   if (method === "OPTIONS") return reply(204);
   const expires = () => Math.floor(Date.now() / 1000) + ttlSeconds;
@@ -50,6 +55,19 @@ export async function handle(req, store, ttlSeconds) {
     if (cur && cur.owner !== hashKey(roomKey)) return reply(403, { error: "forbidden" });
     await store.del(offerId);
     return reply(204);
+  }
+
+  if (kind === "ice" && parts.length === 3) {
+    if (method !== "GET") return reply(405, { error: "method" });
+    if (!turn) return reply(404, { error: "no turn configured" });
+    // Not an open relay: only someone hosting a room, or joining one that exists.
+    if (roomKey.length < 16 && !(await store.get(offerId))) return reply(404, { error: "no room" });
+    try {
+      return reply(200, { iceServers: await turn() });
+    } catch (e) {
+      console.error(e);
+      return reply(502, { error: "turn unavailable" });
+    }
   }
 
   if (kind === "offer" && parts.length === 3) {

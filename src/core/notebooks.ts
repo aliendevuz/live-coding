@@ -19,6 +19,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import * as Y from "yjs";
+import { waitForKey } from "./files";
 import type { Session } from "./session";
 import { Emitter, randomString } from "./util";
 
@@ -190,21 +191,7 @@ export class Notebooks extends Emitter<Events> {
   }
 
   private waitFor(path: string): Promise<void> {
-    if (this.map.has(path)) return Promise.resolve();
-    return new Promise((res, rej) => {
-      const map = this.map;
-      const t = setTimeout(() => {
-        map.unobserve(obs);
-        rej(new Error("notebook did not arrive"));
-      }, 20_000);
-      const obs = () => {
-        if (!map.has(path)) return;
-        clearTimeout(t);
-        map.unobserve(obs);
-        res();
-      };
-      map.observe(obs);
-    });
+    return waitForKey(() => this.map, path, () => this.s.ysync.resync(), "notebook did not arrive");
   }
 
   // ------------------------------------------------------------------ host ---

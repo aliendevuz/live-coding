@@ -236,6 +236,9 @@ const bufText = (id) => `const v = ${S}.terms.views.get(${id}); const b = v.term
 await sleep(1500);
 await host.eval(`${S}.terms.input(${termId}, "echo hello-duet-$((6*7))\\r")`);
 ok(await guest.until(`const s = (() => { ${bufText(termId)} })(); return s.includes("hello-duet-42")`, 10000), "terminal output mirrored to guest");
+ok(await guest.until(`return ${S}.perms.terminal === true`, 5000), "guest has terminal access by default");
+await host.eval(`${S}.setPerms({ terminal: false })`);
+ok(await guest.until(`return ${S}.perms.terminal === false`, 5000), "host can lock the terminal");
 await guest.eval(`${S}.terms.input(${termId}, "echo from-guest-denied\\r")`);
 await sleep(1200);
 ok(!(await host.eval(`const s = (() => { ${bufText(termId)} })(); return s.includes("from-guest-denied")`)), "guest typing blocked without permission");

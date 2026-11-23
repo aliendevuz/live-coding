@@ -26,7 +26,7 @@ export interface Peer {
 }
 
 export interface Perms {
-  /** Guest may type into terminals, open new ones and press Run. */
+  /** Guest may type into terminals, open new ones, press Run and run notebook cells. */
   terminal: boolean;
 }
 
@@ -85,7 +85,8 @@ export class Session extends Emitter<Events> {
   awareness = new Awareness(this.doc);
   me: { name: string; color: string };
   peer: Peer | null = null;
-  perms: Perms = { terminal: false };
+  /** On by default: the student types in terminals and runs code; the host can lock it. */
+  perms: Perms = { terminal: true };
   chat: ChatMsg[] = [];
   state: LinkState = "waiting";
   stats: LinkStats | null = null;
@@ -177,9 +178,10 @@ export class Session extends Emitter<Events> {
         this.projectName = p.project;
         this.projectKey = `${this.room}:${p.project}`;
         this.perms = p.perms;
-        this.emit("perms", this.perms);
       }
+      // Before any UI listener runs: one that throws must not leave the document unsynced.
       this.ysync.start();
+      if (this.role === "guest") this.emit("perms", this.perms);
       this.emit("peer", this.peer);
       this.system(first ? `${p.name} joined.` : `${p.name} reconnected.`);
     });

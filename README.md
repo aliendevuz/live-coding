@@ -135,6 +135,21 @@ Ikonkani o'zgartirganda (`npx tauri icon app-icon.svg`), build'dan oldin `cd src
    - Lobby'da **Advanced → Signaling URL** maydoniga qo'yish (har bir kompyuterda bir marta), yoki
    - loyiha ildizida `.env.production` fayl yaratib, ichiga `VITE_SIGNALING_URL=https://xxxx.lambda-url...` yozish va keyin `npx tauri build` qilish. Shunda installer'ga URL ichiga yozilgan bo'ladi va o'quvchi hech narsa sozlamaydi.
 
+### TURN (ulanish har qanday tarmoqda ishlashi uchun)
+
+STUN'ning o'zi ko'p hollarda yetadi, lekin ikkala tomon symmetric NAT/CGNAT (ko'pincha 4G/5G) yoki UDP'ni bloklaydigan firewall ortida bo'lsa to'g'ridan-to'g'ri ulanish bo'lmaydi. Shunda trafik TURN relay orqali o'tadi. Klient ICE serverlarini Lambda'dan oladi (`GET /rooms/{room}/ice`), credential'lar qisqa muddatli (12 soat) va har ulanishda yangidan olinadi. TURN sozlanmagan bo'lsa ilova avvalgidek faqat STUN ishlatadi.
+
+Tavsiya: **Cloudflare Realtime TURN** (oyiga 1 000 GB bepul). dash.cloudflare.com → Realtime → TURN Server'da kalit yarating, keyin:
+
+```powershell
+cd signaling
+sam deploy --parameter-overrides CloudflareTurnKeyId=<key id> CloudflareTurnApiToken=<api token>
+```
+
+O'z coturn serveringiz bo'lsa (`use-auth-secret`, `static-auth-secret=...`): `TurnUrls="turn:host:3478?transport=udp,turns:host:443?transport=tcp" TurnSecret=<secret>`. Lokal dev-server ham shu env o'zgaruvchilarini o'qiydi (`CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN` yoki `TURN_URLS`, `TURN_SECRET`).
+
+TURN ishlashini tekshirish: DevTools konsolida `localStorage["duet.relayOnly"] = "1"` qo'yib qayta ulaning, shunda faqat relay ishlatiladi. Status bar'da `relay` ko'rinsa, TURN to'g'ri sozlangan. Keyin `localStorage.removeItem("duet.relayOnly")`.
+
 Narxi: bitta dars uchun bir necha o'nlab so'rov ketadi (kutish paytida har 1–2.5 soniyada bitta so'rov). Bu Free Tier ichida qoladi. DynamoDB yozuvlari TTL bilan 1 soatda o'chadi.
 
 ## Testlar
@@ -180,13 +195,14 @@ WebRTC kanallari: `ctrl` (JSON RPC), `yjs`, `cursor` (unreliable), `bulk` va `te
 
 - Xona kodi 10 ta tasodifiy belgidan iborat. Host xonani maxfiy kalit bilan egallaydi, boshqa odam uning offer'ini almashtira olmaydi. Har bir epoch'ga faqat birinchi kelgan javob qabul qilinadi.
 - Guestdan kelgan hamma path loyiha papkasi ichida tekshiriladi: `..`, absolute path, symlink orqali chiqib ketish rad etiladi.
-- Guest fayllarni tahrir qila oladi, yaratadi va o'chiradi (siz shuni xohlagansiz). Kod ishga tushirish va terminalga yozish faqat host ruxsati bilan bo'ladi.
+- Guest fayllarni tahrir qila oladi, yaratadi va o'chiradi. Terminalga yozish, Run va notebook cell'larini ishga tushirish ham odatda yoqilgan. Host toolbar'dagi qulf tugmasi bilan buni istalgan payt o'chira oladi. Bu guest host kompyuterida buyruq bajara oladi degani, shuning uchun xona kodini faqat ishonchli o'quvchiga bering.
+- `/ice` endpoint TURN credential'ini faqat xonani egallagan hostga (room key bilan) yoki mavjud xonaga qo'shilayotgan guestga beradi.
 - Tunnel faqat host ulashgan portlarga ulanadi.
 - Lambda URL'i ochiq (auth yo'q). U faqat SDP saqlaydi va kod emas, xona kodini bilgan odamgina ulana oladi.
 
 ## Cheklovlar va keyingi versiya uchun
 
-- TURN yo'q. Ikkala tomon simmetrik NAT yoki qattiq korporativ tarmoq ortida bo'lsa ulanish o'rnatilmaydi, status bar'da shu haqda xabar chiqadi. Kerak bo'lsa `src/net/link.ts`'dagi `ICE` ro'yxatiga TURN server qo'shiladi.
+- TURN Lambda'da sozlanmagan bo'lsa (yuqoridagi "TURN" bo'limi), ikkala tomon simmetrik NAT yoki qattiq korporativ tarmoq ortida bo'lganda ulanish o'rnatilmaydi, status bar'da shu haqda xabar chiqadi.
 - IntelliSense hozircha Python va JS/TS uchun. Go, Rust, C/C++ va Java'da faqat so'z bo'yicha taklif ishlaydi. Rename va formatlash keyingi versiyada.
 - Bitta xonaga bitta host va bitta guest ulanadi.
 - Ikkala tomonda realtime ishlaydigan `.git`'ga o'xshash tarix keyinga qoldirilgan.

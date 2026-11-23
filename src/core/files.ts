@@ -373,22 +373,7 @@ export class Files extends Emitter<Events> {
   }
 
   private waitForText(path: string): Promise<void> {
-    if (this.map.has(path)) return Promise.resolve();
-    return new Promise((res, rej) => {
-      const map = this.map;
-      const t = setTimeout(() => {
-        map.unobserve(obs);
-        rej(new Error("file did not arrive"));
-      }, 15000);
-      const obs = () => {
-        if (map.has(path)) {
-          clearTimeout(t);
-          map.unobserve(obs);
-          res();
-        }
-      };
-      map.observe(obs);
-    });
+    return waitForKey(() => this.map, path, () => this.s.ysync.resync(), "file did not arrive");
   }
 
   // ------------------------------------------------------------------ host ---
@@ -616,6 +601,33 @@ export class Files extends Emitter<Events> {
     })();
     return { size: st.size, hash: st.hash };
   }
+}
+
+/**
+ * Guest: wait until the host's document puts `key` into the map. If it is
+ * slow, ask for a resync (repairs a lost update) and keep waiting.
+ * `map` is a getter: the session may swap documents meanwhile.
+ */
+export function waitForKey(map: () => { has(key: string): boolean }, key: string, resync: () => void, error: string): Promise<void> {
+  if (map().has(key)) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const started = Date.now();
+    let nudged = 0;
+    const iv = window.setInterval(() => {
+      if (map().has(key)) {
+        clearInterval(iv);
+        return res();
+      }
+      const waited = Date.now() - started;
+      if (waited > 30_000) {
+        clearInterval(iv);
+        rej(new Error(error));
+      } else if (waited > 1500 + nudged * 5000) {
+        nudged++;
+        resync();
+      }
+    }, 100);
+  });
 }
 
 /** A transfer's state can change from the UI while a loop runs. */

@@ -33,7 +33,10 @@ type Events = {
   error: string;
 };
 
-const ICE: RTCIceServer[] = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+/** Used when the signaling server hands out no ICE servers (no TURN configured). */
+const STUN_ONLY: RTCIceServer[] = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+/** Refetch TURN credentials before they get this old. */
+const ICE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 // Negotiated channels: both sides create them with the same ids, so no
 // ondatachannel round-trip and nothing extra to renegotiate.
@@ -49,6 +52,8 @@ type ChannelName = keyof typeof CHANNELS;
 const HEARTBEAT_MS = 1000;
 const CTRL_CHUNK = 60_000; // characters per control-channel message
 const YJS_CHUNK = 60_000; // bytes per yjs-channel message
+/** Above this many bytes buffered in a channel, further sends wait in our own queue. */
+const SEND_HIGH_WATER = 1024 * 1024;
 const DEAD_AFTER_MS = 10000;
 const OPEN_TIMEOUT_MS = 25000;
 
@@ -66,6 +71,9 @@ export class Link extends Emitter<Events> {
   private nextChunkId = 1;
   private chunks = new Map<number, string[]>();
   private yjsChunks = new Map<number, Uint8Array[]>();
+  /** Reliable messages waiting for room in a channel's send buffer (never dropped). */
+  private outq: Partial<Record<ChannelName, (string | Uint8Array)[]>> = {};
+  private ice: { servers: RTCIceServer[]; at: number; turn: boolean } | null = null;
 
   constructor(
     readonly role: Role,
@@ -112,7 +120,7 @@ export class Link extends Emitter<Events> {
     if (!c) return false;
     const json = JSON.stringify(msg);
     if (json.length <= CTRL_CHUNK) {
-      c.send(json);
+      this.enqueue("ctrl", c, json);
       return true;
     }
     // Large messages (completion lists, big folder listings) are split: a data
@@ -120,7 +128,7 @@ export class Link extends Emitter<Events> {
     const id = this.nextChunkId++;
     const n = Math.ceil(json.length / CTRL_CHUNK);
     for (let i = 0; i < n; i++) {
-      c.send(JSON.stringify({ t: "chunk", id, i, n, d: json.slice(i * CTRL_CHUNK, (i + 1) * CTRL_CHUNK) }));
+      this.enqueue("ctrl", c, JSON.stringify({ t: "chunk", id, i, n, d: json.slice(i * CTRL_CHUNK, (i + 1) * CTRL_CHUNK) }));
     }
     return true;
   }
@@ -135,7 +143,7 @@ export class Link extends Emitter<Events> {
       const f = new Uint8Array(1 + data.length);
       f[0] = 0;
       f.set(data, 1);
-      c.send(f);
+      this.enqueue("yjs", c, f);
       return;
     }
     const id = this.nextChunkId++;
@@ -149,8 +157,27 @@ export class Link extends Emitter<Events> {
       v.setUint16(5, i, true);
       v.setUint16(7, n, true);
       f.set(part, 9);
-      c.send(f);
+      this.enqueue("yjs", c, f);
     }
+  }
+
+  /**
+   * Send without ever throwing or dropping. RTCDataChannel.send throws once
+   * its buffer is full (~16 MB), and a lost Yjs update leaves every later one
+   * stuck on the peer (they depend on it), so overflow waits in a queue that
+   * drains on bufferedamountlow.
+   */
+  private enqueue(name: ChannelName, c: RTCDataChannel, msg: string | Uint8Array) {
+    const q = (this.outq[name] ??= []);
+    if (q.length || c.bufferedAmount > SEND_HIGH_WATER) q.push(msg);
+    else sendRaw(c, msg);
+  }
+
+  private drain(name: ChannelName) {
+    const c = this.channel(name);
+    const q = this.outq[name];
+    if (!c || !q) return;
+    while (q.length && c.bufferedAmount <= SEND_HIGH_WATER) sendRaw(c, q.shift()!);
   }
   sendCursor(msg: Record<string, unknown>) {
     const c = this.channel("cursor");
@@ -166,10 +193,23 @@ export class Link extends Emitter<Events> {
 
   // ---------------------------------------------------------------- setup ---
 
-  private makePc(): RTCPeerConnection {
-    const pc = new RTCPeerConnection({ iceServers: ICE });
+  /** STUN plus, when the signaling server has TURN configured, short-lived TURN credentials. */
+  private async iceServers(): Promise<RTCIceServer[]> {
+    if (this.ice && Date.now() - this.ice.at < ICE_MAX_AGE_MS) return this.ice.servers;
+    const got = await this.sig.getIce().catch(() => null);
+    if (got?.length) this.ice = { servers: got, at: Date.now(), turn: got.some(hasTurn) };
+    else if (!this.ice) return STUN_ONLY; // try again on the next (re)connect
+    return this.ice.servers;
+  }
+
+  private async makePc(): Promise<RTCPeerConnection> {
+    const iceServers = await this.iceServers();
+    // Debug: localStorage["duet.relayOnly"] = "1" forces TURN, to prove it works.
+    const relayOnly = localStorage.getItem("duet.relayOnly") === "1";
+    const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: relayOnly ? "relay" : "all" });
     this.chunks.clear();
     this.yjsChunks.clear();
+    this.outq = {};
     this.pc = pc;
     this.ch = {};
     for (const [name, opts] of Object.entries(CHANNELS) as [ChannelName, RTCDataChannelInit][]) {
@@ -183,6 +223,11 @@ export class Link extends Emitter<Events> {
     }
     this.ch.bulk!.bufferedAmountLowThreshold = 64 * 1024;
     this.ch.term!.bufferedAmountLowThreshold = 64 * 1024;
+    for (const name of ["ctrl", "yjs"] as const) {
+      const c = this.ch[name]!;
+      c.bufferedAmountLowThreshold = SEND_HIGH_WATER / 2;
+      c.addEventListener("bufferedamountlow", () => this.drain(name));
+    }
     pc.ontrack = (e) => this.emit("remoteAudio", e.streams[0] ?? new MediaStream([e.track]));
     pc.onconnectionstatechange = () => {
       if (pc !== this.pc) return;
@@ -334,7 +379,7 @@ export class Link extends Emitter<Events> {
   private async runHost() {
     while (!this.closed) {
       this.setState(this.idleState());
-      const pc = this.makePc();
+      const pc = await this.makePc();
       pc.addTransceiver(this.mic ?? "audio", { direction: "sendrecv" });
       await pc.setLocalDescription(await pc.createOffer());
       await this.waitIce(pc);
@@ -366,7 +411,12 @@ export class Link extends Emitter<Events> {
         continue;
       }
       if (!(await this.waitOpen(pc))) {
-        this.emit("error", "Peer answered but no direct connection could be made (a TURN server may be needed).");
+        this.emit(
+          "error",
+          this.ice?.turn
+            ? "Peer answered but no connection could be made, not even through the relay."
+            : "Peer answered but no direct connection could be made (the signaling server has no TURN relay configured).",
+        );
         pc.close();
         continue;
       }
@@ -389,7 +439,7 @@ export class Link extends Emitter<Events> {
       this.lastAnsweredEpoch = offer.epoch;
 
       this.setState("connecting");
-      const pc = this.makePc();
+      const pc = await this.makePc();
       try {
         await pc.setRemoteDescription(offer.sdp);
         const tr = pc.getTransceivers()[0];
@@ -473,3 +523,10 @@ export class Link extends Emitter<Events> {
     }
   }
 }
+
+function sendRaw(c: RTCDataChannel, msg: string | Uint8Array) {
+  if (typeof msg === "string") c.send(msg);
+  else c.send(msg as Uint8Array<ArrayBuffer>);
+}
+
+const hasTurn = (s: RTCIceServer) => (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => /^turns?:/.test(u));

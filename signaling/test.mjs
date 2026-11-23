@@ -14,8 +14,10 @@ const store = {
   },
   async del(id) { items.delete(id); },
 };
+const ICE = [{ urls: "turn:t.example:3478", username: "u", credential: "c" }];
+let turn = null;
 const call = (method, path, body, key) =>
-  handle({ method, path, headers: key ? { "x-room-key": key } : {}, body: body && JSON.stringify(body) }, store, 60);
+  handle({ method, path, headers: key ? { "x-room-key": key } : {}, body: body && JSON.stringify(body) }, store, 60, turn);
 
 const KEY = "k".repeat(32);
 const room = "abcd1234ef";
@@ -35,6 +37,19 @@ assert.equal((await call("GET", `/rooms/${room}/answer/1`)).statusCode, 200);
 assert.equal((await call("PUT", `/rooms/${room}/offer`, { epoch: 5, sdp }, KEY)).statusCode, 204);
 assert.equal((await call("PUT", `/rooms/${room}/answer/5`, { sdp })).statusCode, 204);
 assert.equal((await call("GET", "/rooms/BAD!/offer")).statusCode, 404);
+// ICE: off without TURN; with TURN only for the host (key) or a room that exists.
+assert.equal((await call("GET", `/rooms/${room}/ice`, null, KEY)).statusCode, 404, "no turn configured");
+turn = async () => ICE;
+assert.deepEqual(JSON.parse((await call("GET", `/rooms/${room}/ice`, null, KEY)).body), { iceServers: ICE });
+assert.equal((await call("GET", `/rooms/${room}/ice`)).statusCode, 200, "guest of an open room");
+assert.equal((await call("GET", "/rooms/zzzz9999zz/ice")).statusCode, 404, "guest of no room");
+assert.equal((await call("PUT", `/rooms/${room}/ice`, null, KEY)).statusCode, 405);
+turn = async () => { throw new Error("down"); };
+const origErr = console.error;
+console.error = () => {};
+assert.equal((await call("GET", `/rooms/${room}/ice`, null, KEY)).statusCode, 502);
+console.error = origErr;
+turn = null;
 assert.equal((await call("DELETE", `/rooms/${room}`, null, "x".repeat(32))).statusCode, 403);
 assert.equal((await call("DELETE", `/rooms/${room}`, null, KEY)).statusCode, 204);
 assert.equal((await call("GET", `/rooms/${room}/offer`)).statusCode, 404);

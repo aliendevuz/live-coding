@@ -2,10 +2,12 @@
 import { DynamoDBClient, ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { handle } from "./logic.mjs";
+import { turnProvider } from "./turn.mjs";
 
 const db = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const TABLE = process.env.TABLE;
 const TTL_SECONDS = Number(process.env.TTL_SECONDS || 3600);
+const turn = turnProvider();
 
 const store = {
   async get(id) {
@@ -56,6 +58,7 @@ export const handler = async (event) => {
       },
       store,
       TTL_SECONDS,
+      turn,
     );
   } catch (e) {
     console.error(e);

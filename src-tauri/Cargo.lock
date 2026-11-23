@@ -2231,7 +2231,7 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
 name = "live"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "blake3",
  "dirs",

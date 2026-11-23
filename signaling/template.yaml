@@ -7,6 +7,24 @@ Parameters:
     Type: Number
     Default: 3600
     Description: How long an offer/answer record lives before DynamoDB deletes it.
+  CloudflareTurnKeyId:
+    Type: String
+    Default: ""
+    Description: "Cloudflare Realtime TURN key id (dash.cloudflare.com -> Realtime -> TURN). Empty = no TURN."
+  CloudflareTurnApiToken:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: "API token of that TURN key."
+  TurnUrls:
+    Type: String
+    Default: ""
+    Description: "Own coturn instead of Cloudflare, comma-separated turn:/turns: URLs."
+  TurnSecret:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: "coturn static-auth-secret."
 
 Resources:
   RoomsTable:
@@ -36,6 +54,10 @@ Resources:
         Variables:
           TABLE: !Ref RoomsTable
           TTL_SECONDS: !Ref RoomTtlSeconds
+          CF_TURN_KEY_ID: !Ref CloudflareTurnKeyId
+          CF_TURN_API_TOKEN: !Ref CloudflareTurnApiToken
+          TURN_URLS: !Ref TurnUrls
+          TURN_SECRET: !Ref TurnSecret
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref RoomsTable
