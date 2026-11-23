@@ -1,6 +1,6 @@
 [package]
 name = "live"
-version = "0.5.3"
+version = "0.5.4"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2024"
@@ -39,3 +39,6 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[target."cfg(windows)".dependencies]
+wasapi = "0.27.0"

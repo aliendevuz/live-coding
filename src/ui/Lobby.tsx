@@ -8,6 +8,7 @@ import { useFileDrop } from "./useFileDrop";
 import { Session } from "../core/session";
 import { loadHostedRoom, saveHostedRoom, saveSettings, type Settings } from "../core/settings";
 import { randomString } from "../core/util";
+import { askText } from "./prompt";
 
 interface Props {
   settings: Settings;
@@ -45,13 +46,21 @@ export function Lobby({ settings, onSettings, onSession }: Props) {
     onSettings(next);
   };
 
-  const guard = async (fn: () => Promise<void>) => {
+  const guard = async (fn: (cur: Settings) => Promise<void>) => {
     setErr("");
-    if (!s.name.trim()) return setErr("Enter your name first.");
-    if (!/^https?:\/\//.test(s.signalingUrl)) return setErr("Set the signaling URL (Advanced).");
+    let cur = s;
+    // Opened by dropping a folder (on the window or on the app icon) before a
+    // name was ever entered: ask for it now instead of failing.
+    if (!cur.name.trim()) {
+      const name = await askText("Your name (your partner will see it)");
+      if (!name) return setErr("Enter your name first.");
+      cur = { ...cur, name };
+      update({ name });
+    }
+    if (!/^https?:\/\//.test(cur.signalingUrl)) return setErr("Set the signaling URL (Advanced).");
     setBusy(true);
     try {
-      await fn();
+      await fn(cur);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -60,7 +69,7 @@ export function Lobby({ settings, onSettings, onSession }: Props) {
   };
 
   const host = (reuse: boolean, dropped?: string) =>
-    guard(async () => {
+    guard(async (cur) => {
       let project = dropped ?? (reuse && hosted ? hosted.project : null);
       if (!project) {
         const picked = await openDialog({ directory: true, title: "Choose the project folder to teach from" });
@@ -72,15 +81,26 @@ export function Lobby({ settings, onSettings, onSession }: Props) {
       const room = same ? hosted.room : newRoom();
       const key = same ? hosted.key : randomString(32, "0123456789abcdef");
       saveHostedRoom({ room, key, project });
-      onSession(await Session.host(s, project, room, key));
+      onSession(await Session.host(cur, project, room, key));
     });
 
   const join = () =>
-    guard(async () => {
+    guard(async (cur) => {
       const room = cleanRoom(code);
       if (room.length < 8) throw new Error("Enter the room code you got from the host.");
-      onSession(await Session.join(s, room));
+      onSession(await Session.join(cur, room));
     });
+
+  // A folder dropped onto Duet's icon or shortcut arrives on the command line
+  // (like VS Code): host it right away. Once per app start, not after Leave.
+  useEffect(() => {
+    if (sessionStorage.getItem("duet.launchFolder")) return;
+    sessionStorage.setItem("duet.launchFolder", "1");
+    void invoke<string | null>("launch_folder").then((dir) => {
+      if (dir) void host(false, dir);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Drop a project folder anywhere on the window to start teaching from it.
   const dragging = useFileDrop((paths) => {

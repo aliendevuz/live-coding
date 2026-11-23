@@ -3,8 +3,21 @@ mod kernel;
 mod liveserver;
 mod lsp;
 mod pty;
+mod sysaudio;
 mod tunnel;
 mod venv;
+
+/// A folder given on the command line: what Windows passes when a folder is
+/// dropped onto Duet's icon or shortcut (like "Open with Code").
+#[tauri::command]
+fn launch_folder() -> Option<String> {
+    std::env::args_os()
+        .skip(1)
+        .map(std::path::PathBuf::from)
+        .find(|p| p.is_dir())
+        // absolute(), not canonicalize(): no `\\?\` prefix on Windows.
+        .map(|p| std::path::absolute(&p).unwrap_or(p).to_string_lossy().into_owned())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -31,6 +44,7 @@ pub fn run() {
         .manage(liveserver::LiveServer::default())
         .manage(lsp::Lsps::default())
         .manage(kernel::Kernels::default())
+        .manage(sysaudio::SysAudio::default())
         .invoke_handler(tauri::generate_handler![
             fsops::project_open,
             fsops::fs_list,
@@ -75,6 +89,9 @@ pub fn run() {
             kernel::kernel_start,
             kernel::kernel_send,
             kernel::kernel_stop,
+            sysaudio::sysaudio_start,
+            sysaudio::sysaudio_stop,
+            launch_folder,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -84,6 +101,7 @@ pub fn run() {
                 use tauri::Manager;
                 lsp::stop_all(&app.state::<lsp::Lsps>());
                 kernel::stop_all(&app.state::<kernel::Kernels>());
+                sysaudio::stop(&app.state::<sysaudio::SysAudio>());
             }
         });
 }

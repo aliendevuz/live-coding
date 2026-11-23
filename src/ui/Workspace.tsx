@@ -18,6 +18,8 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  MonitorSpeaker,
+  SlidersHorizontal,
   MousePointer2,
   PanelBottom,
   PanelLeft,
@@ -27,6 +29,7 @@ import {
   Sparkles,
   SquareTerminal,
   TriangleAlert,
+  VolumeX,
   Wifi,
   Zap,
   ZoomIn,
@@ -35,6 +38,7 @@ import {
 import type { LspStatus } from "../core/lsp";
 import type { Session, Toast } from "../core/session";
 import { formatBytes } from "../core/util";
+import { AudioDialog } from "./AudioDialog";
 import { BottomPanel } from "./BottomPanel";
 import { Chat } from "./Chat";
 import { EditorArea, type EditorHandle } from "./EditorArea";
@@ -129,9 +133,12 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
   const peer = useEvent(session, "peer", session.peer);
   const perms = useEvent(session, "perms", session.perms);
   const stats = useEvent(session, "stats", session.stats);
-  const levels = useEvent(session, "levels", { me: 0, peer: 0 });
+  const levels = useEvent(session, "levels", { me: 0, peer: 0, mic: 0, sys: 0 });
+  const audio = useEvent(session, "audio", session.audio.state);
+  const [audioDialog, setAudioDialog] = useState(false);
+  const [micMenu, setMicMenu] = useState<{ x: number; y: number } | null>(null);
   const lspStatus = useEvent(session.lsp, "status", session.lsp.status);
-  const [muted, setMuted] = useState(session.audio.muted);
+  const muted = audio.micMuted;
   const [tool, setTool] = useState<Tool>(null);
   const [follow, setFollow] = useState(session.role === "guest");
   const [layout, setLayout] = useLayout();
@@ -259,12 +266,20 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
     onLeave();
   }, [session, isHost, onLeave]);
 
-  const toggleMute = useCallback(() => {
-    setMuted((m) => {
-      session.setMuted(!m);
-      return !m;
-    });
-  }, [session]);
+  const toggleMute = useCallback(() => session.setMuted(!session.audio.state.micMuted), [session]);
+
+  useEffect(() => {
+    if (!micMenu) return;
+    const close = () => setMicMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [micMenu]);
 
   const copyRoom = () => {
     void navigator.clipboard.writeText(prettyRoom(session.room));
@@ -302,6 +317,12 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
       { id: "fullscreen", title: "View: Toggle Full Screen", keys: "F11", run: () => void toggleFullscreen() },
       { id: "terminal", title: "Terminal: New Terminal", keys: `${MOD}+Shift+\``, run: newTerminal },
       { id: "mute", title: "Audio: Toggle Microphone", keys: `${MOD}+Shift+M`, run: toggleMute },
+      { id: "audio", title: "Audio: Settings…", run: () => setAudioDialog(true) },
+      {
+        id: "sysaudio",
+        title: "Audio: Toggle Sharing System Audio",
+        run: () => void session.audio.setSysOn(!session.audio.state.sysOn),
+      },
       { id: "laser", title: "Draw: Laser Pointer", keys: "Ctrl+Alt+L", run: () => setTool((t) => (t === "laser" ? null : "laser")) },
       { id: "pen", title: "Draw: Pen", keys: "Ctrl+Alt+P", run: () => setTool((t) => (t === "pen" ? null : "pen")) },
       { id: "hl", title: "Draw: Highlighter", keys: "Ctrl+Alt+H", run: () => setTool((t) => (t === "highlighter" ? null : "highlighter")) },
@@ -408,7 +429,7 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
 
         <div className="tb-right">
           <div className="avatars">
-            <Avatar name={session.me.name} color={session.me.color} level={muted ? 0 : levels.me} title={`${session.me.name} (you)`} />
+            <Avatar name={session.me.name} color={session.me.color} level={levels.me} title={`${session.me.name} (you)`} />
             {peer && (
               <Avatar
                 name={peer.name}
@@ -420,9 +441,45 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
               />
             )}
           </div>
-          <button className={`tb-btn${muted ? " warn" : ""}`} onClick={toggleMute} title={`${muted ? "Unmute" : "Mute"} microphone (${MOD}+Shift+M)`}>
+          <button
+            className={`tb-btn${muted ? " warn" : ""}`}
+            onClick={toggleMute}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setMicMenu({ x: Math.min(e.clientX, innerWidth - 230), y: e.clientY + 4 });
+            }}
+            title={`${muted ? "Unmute" : "Mute"} microphone (${MOD}+Shift+M). Right-click for audio settings.`}
+          >
             {muted ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
+          {audio.sysOn && (
+            <button
+              className={`tb-btn${audio.sysMuted ? " warn" : " on"}`}
+              onClick={() => session.audio.setSysMuted(!audio.sysMuted)}
+              onContextMenu={(e) => (e.preventDefault(), setAudioDialog(true))}
+              title={`System audio is shared. Click to ${audio.sysMuted ? "unmute" : "mute"} it; right-click for audio settings.`}
+            >
+              {audio.sysMuted ? <VolumeX size={16} /> : <MonitorSpeaker size={16} />}
+            </button>
+          )}
+          {micMenu && (
+            <div className="ctx-menu" style={{ left: micMenu.x, top: micMenu.y }} onClick={(e) => e.stopPropagation()}>
+              <div onClick={() => (setMicMenu(null), toggleMute())}>
+                {muted ? "Unmute Microphone" : "Mute Microphone"}
+                <span className="key">{MOD}+Shift+M</span>
+              </div>
+              <div onClick={() => (setMicMenu(null), void session.audio.setSysOn(!audio.sysOn))}>
+                {audio.sysOn ? "Stop Sharing System Audio" : "Share System Audio"}
+              </div>
+              <hr />
+              <div onClick={() => (setMicMenu(null), setAudioDialog(true))}>
+                <span className="label-row">
+                  <SlidersHorizontal size={13} /> Audio Settings…
+                </span>
+              </div>
+            </div>
+          )}
           <button
             className={`tb-btn${follow ? " on" : ""}`}
             disabled={!peer}
@@ -555,6 +612,7 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
         </div>
       </div>
 
+      {audioDialog && <AudioDialog session={session} onClose={() => setAudioDialog(false)} />}
       <VisibilityOverlay session={session} enabled={preview && !!peer} peerName={peer?.name ?? ""} peerColor={peerColor} />
       <PointerOverlay session={session} tool={tool} setTool={setTool} myColor={session.me.color} peerColor={peerColor} peerName={peer?.name ?? ""} />
 

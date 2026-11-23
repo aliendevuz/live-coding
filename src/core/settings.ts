@@ -2,6 +2,9 @@ export interface Settings {
   name: string;
   signalingUrl: string;
   micId: string;
+  micVolume: number;
+  sysVolume: number;
+  outVolume: number;
 }
 
 const KEY = "duet.settings";
@@ -12,7 +15,15 @@ export function loadSettings(): Settings {
   const s = raw ? (JSON.parse(raw) as Partial<Settings>) : {};
   // A stale local test URL must not override the URL built into this installer.
   const url = s.signalingUrl && !(s.signalingUrl.includes("localhost") && !DEFAULT_URL.includes("localhost")) ? s.signalingUrl : DEFAULT_URL;
-  return { name: s.name || "", signalingUrl: url, micId: s.micId || "" };
+  const vol = (v: unknown, max: number) => (typeof v === "number" && v >= 0 && v <= max ? v : 1);
+  return {
+    name: s.name || "",
+    signalingUrl: url,
+    micId: s.micId || "",
+    micVolume: vol(s.micVolume, 2),
+    sysVolume: vol(s.sysVolume, 2),
+    outVolume: vol(s.outVolume, 1),
+  };
 }
 
 export function saveSettings(s: Settings) {

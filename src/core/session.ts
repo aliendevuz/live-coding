@@ -7,12 +7,12 @@ import { Awareness } from "y-protocols/awareness";
 import { Bulk } from "../net/bulk";
 import { Link, type LinkState, type LinkStats, type Role } from "../net/link";
 import { Signaling } from "../net/signaling";
-import { Audio } from "./audio";
+import { Audio, type AudioState, type Levels } from "./audio";
 import { Files } from "./files";
 import { Lsp } from "./lsp";
 import { Notebooks } from "./notebooks";
 import { Rpc } from "./rpc";
-import type { Settings } from "./settings";
+import { loadSettings, saveSettings, type Settings } from "./settings";
 import { Terminals } from "./terminals";
 import { Tunnels } from "./tunnels";
 import { Emitter, PEER_COLORS, randomString } from "./util";
@@ -65,7 +65,8 @@ type Events = {
   toast: Toast;
   doc: Y.Doc;
   stats: LinkStats;
-  levels: { me: number; peer: number };
+  levels: Levels;
+  audio: AudioState;
   pointer: PointerMsg;
   error: string;
 };
@@ -74,7 +75,7 @@ export class Session extends Emitter<Events> {
   readonly link: Link;
   readonly bulk: Bulk;
   readonly rpc: Rpc;
-  readonly audio = new Audio();
+  readonly audio: Audio;
   readonly files: Files;
   readonly terms: Terminals;
   readonly tunnels: Tunnels;
@@ -101,10 +102,11 @@ export class Session extends Emitter<Events> {
     readonly role: Role,
     readonly room: string,
     private sig: Signaling,
-    private settings: Settings,
+    settings: Settings,
   ) {
     super();
     this.me = { name: settings.name || (role === "host" ? "Teacher" : "Student"), color: PEER_COLORS[role === "host" ? 0 : 1] };
+    this.audio = new Audio(settings);
     this.link = new Link(role, sig);
     this.rpc = new Rpc(this.link);
     this.bulk = new Bulk(this.link);
@@ -139,9 +141,9 @@ export class Session extends Emitter<Events> {
 
   private async begin() {
     this.lsp.init();
-    const mic = await this.audio.startMic(this.settings.micId || undefined);
-    if (!mic) this.toast("Microphone not available. You can still listen and chat.");
-    this.link.start(mic);
+    const mix = await this.audio.startMic();
+    if (!this.audio.state.micOk) this.toast("Microphone not available. You can still listen and chat.");
+    this.link.start(mix);
   }
 
   private wire() {
@@ -172,6 +174,17 @@ export class Session extends Emitter<Events> {
     link.on("remoteAudio", (stream) => this.audio.playRemote(stream));
     link.on("cursor", (m) => this.emit("pointer", m as PointerMsg));
     this.audio.on("levels", (l) => this.emit("levels", l));
+    let wasMuted = this.audio.muted;
+    this.audio.on("state", (a) => {
+      // The partner's avatar shows "muted" when nothing at all reaches them.
+      if (this.audio.muted !== wasMuted) {
+        wasMuted = this.audio.muted;
+        this.rpc.notify("mute", { muted: wasMuted });
+      }
+      // Device and volumes are remembered for the next lesson.
+      saveSettings({ ...loadSettings(), micId: a.micId, micVolume: a.micVolume, sysVolume: a.sysVolume, outVolume: a.outVolume });
+      this.emit("audio", a);
+    });
 
     link.on("open", () => {
       rpc.notify("hello", {
@@ -245,8 +258,7 @@ export class Session extends Emitter<Events> {
   // ------------------------------------------------------------ actions ---
 
   setMuted(m: boolean) {
-    this.audio.setMuted(m);
-    this.rpc.notify("mute", { muted: m });
+    this.audio.setMicMuted(m);
   }
 
   setPerms(p: Perms) {

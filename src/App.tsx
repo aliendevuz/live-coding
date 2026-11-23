@@ -25,7 +25,14 @@ export default function App() {
   return (
     <>
       {session ? (
-        <Workspace session={session} onLeave={() => setSession(null)} />
+        <Workspace
+          session={session}
+          onLeave={() => {
+            setSession(null);
+            // The lesson may have saved audio device and volumes.
+            setSettings(loadSettings());
+          }}
+        />
       ) : (
         <Lobby settings={settings} onSettings={setSettings} onSession={setSession} />
       )}

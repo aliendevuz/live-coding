@@ -456,3 +456,19 @@ button.sb-item:hover { color: var(--fg); background: none !important; }
 .mi { flex: none; display: block; object-fit: contain; user-select: none; -webkit-user-drag: none; }
 /* Drawing tools stay usable while drawing: the title bar sits above the canvas. */
 .titlebar { position: relative; z-index: 920; }
+
+/* ---------- audio settings ---------- */
+.au-dialog { width: 420px; gap: 14px; }
+.au-head { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+.au-dialog section { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.au-title { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+.au-toggle { margin-left: auto; height: 24px; padding: 0 9px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; }
+.au-toggle.muted { color: #ff8a70; background: #f2482218; border-color: #f2482244; }
+.au-meter { height: 5px; border-radius: 3px; background: var(--bg-hover); overflow: hidden; }
+.au-meter > div { height: 100%; background: #3ecf6e; transition: width 0.1s linear; }
+.au-meter.off > div { background: var(--fg-faint); }
+.au-vol { display: flex; align-items: center; gap: 10px; }
+.au-vol input { flex: 1; }
+.au-vol span { width: 40px; text-align: right; color: var(--fg-dim); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.au-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.au-note { font-size: 11.5px; }
