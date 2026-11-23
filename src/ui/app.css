@@ -215,7 +215,17 @@ button.run-btn { height: 26px; padding: 0 12px 0 10px; font-weight: 600; font-si
 
 /* remote cursors inside the code (y-monaco) */
 .yRemoteSelection { opacity: 1; border-radius: 2px; }
-.yRemoteSelectionHead { position: absolute; height: 100%; box-sizing: border-box; border-left: 2px solid; }
+.yRemoteSelectionHead { position: absolute; height: 100%; box-sizing: border-box; border-left: 2px solid; pointer-events: auto; z-index: 5; }
+/* A small flag on top of the caret: the caret's color says who it is, and
+   hovering the flag (or caret) opens the name without covering the code. */
+.yRemoteSelectionHead::before { content: ""; position: absolute; top: -1px; left: -4px; width: 6px; height: 5px; background: var(--peer); border-radius: 1px 1px 3px 3px; }
+.yRemoteSelectionHead::after {
+  position: absolute; top: -1.45em; left: -2px; background: var(--peer); color: #fff;
+  font: 600 10.5px/1.5 "Segoe UI", sans-serif; padding: 0 6px; border-radius: 4px 4px 4px 0;
+  white-space: nowrap; pointer-events: none; box-shadow: 0 1px 3px #0006; z-index: 10;
+  opacity: 0; transform: scale(0.6); transform-origin: 0 100%; transition: opacity 0.12s, transform 0.12s;
+}
+.yRemoteSelectionHead:hover::after { opacity: 1; transform: none; }
 
 /* ============================================================
    Bottom panel
@@ -260,7 +270,8 @@ button.run-btn { height: 26px; padding: 0 12px 0 10px; font-weight: 600; font-si
    Overlay: Figma-style cursors, drawing, toasts, modal
    ============================================================ */
 .overlay { position: fixed; inset: 0; z-index: 900; pointer-events: none; }
-.overlay.drawing { pointer-events: auto; cursor: crosshair; }
+/* A drawing tool is on: crosshair over the editor only (the rest stays usable). */
+body.draw-tool .editor-wrap, body.draw-tool .editor-wrap * { cursor: crosshair !important; }
 .remote-pointer { position: fixed; left: 0; top: 0; z-index: 950; pointer-events: none; will-change: transform; transition: opacity 0.25s; }
 .cursor-svg { position: absolute; left: -4px; top: -4px; filter: drop-shadow(0 1px 2px #0008); }
 .cursor-label {

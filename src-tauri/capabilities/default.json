@@ -12,6 +12,7 @@
     "opener:allow-reveal-item-in-dir",
     "core:webview:allow-set-webview-zoom",
     "core:window:allow-set-fullscreen",
-    "core:window:allow-is-fullscreen"
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-destroy"
   ]
 }

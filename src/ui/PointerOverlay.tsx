@@ -3,6 +3,9 @@
 // Positions are sent as anchors, not pixels: over code they are (file, line,
 // column), elsewhere a fraction of a named panel. So a stroke drawn under
 // line 12 stays under line 12 on the other screen, and scrolls with the code.
+//
+// Drawing happens only inside the editor area (code, notebook, image), and is
+// clipped to it on both screens. Each person can clear only their own strokes.
 
 import { useEffect, useRef, useState } from "react";
 import { Highlighter, PenLine, Zap } from "lucide-react";
@@ -132,6 +135,18 @@ function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke, now: number, laser
   ctx.restore();
 }
 const SEND_HZ = 40;
+
+/** The only area drawn on (and into which strokes are clipped). */
+function drawArea(): DOMRect | null {
+  const r = document.querySelector(".editor-wrap")?.getBoundingClientRect();
+  return r && r.width && r.height ? r : null;
+}
+const inside = (r: DOMRect, x: number, y: number) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+
+/** Strokes are keyed "m<n>" (mine) or "r<n>" (the partner's). */
+function clearStrokes(map: Map<string, Stroke>, prefix: "m" | "r") {
+  for (const k of [...map.keys()]) if (k.startsWith(prefix)) map.delete(k);
+}
 
 function toAnchor(x: number, y: number): Anchor | null {
   const code = pointToCode(x, y);
@@ -269,10 +284,26 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
         s.last = performance.now();
         if (m.end) s.ended = true;
       } else if (m.t === "clear") {
-        strokes.current.clear();
+        // The partner cleared their own drawings; mine stay.
+        clearStrokes(strokes.current, "r");
       }
     });
   }, [session, peerColor]);
+
+  // The partner left or the link dropped: no stale pointer or drawings of theirs.
+  useEffect(() => {
+    const gone = () => {
+      remoteAnchor.current = null;
+      clearStrokes(strokes.current, "r");
+      setPeerTool(null);
+    };
+    const offState = session.on("state", (st) => st !== "connected" && gone());
+    const offPeer = session.on("peer", (p) => !p && gone());
+    return () => {
+      offState();
+      offPeer();
+    };
+  }, [session]);
 
   // ---- keyboard: tools ----
   useEffect(() => {
@@ -289,7 +320,7 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
         setTool(toolRef.current === map[k] ? null : map[k]);
       } else if (k === "c") {
         e.preventDefault();
-        strokes.current.clear();
+        clearStrokes(strokes.current, "m");
         session.sendPointer({ t: "clear" });
       }
     };
@@ -298,13 +329,29 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
   }, [session, setTool]);
 
   // ---- drawing input ----
+  // The canvas never takes the mouse: while a tool is on, a press inside the
+  // editor area starts a stroke (and is kept from the editor); everywhere else
+  // the app works as usual.
   useEffect(() => {
-    const cv = canvasRef.current!;
+    document.body.classList.toggle("draw-tool", !!tool);
+    return () => document.body.classList.remove("draw-tool");
+  }, [tool]);
+
+  useEffect(() => {
     let cur: Stroke | null = null;
     let seq = 0;
     let lastSent = 0;
+    let area: DOMRect | null = null;
+    const send = (s: Stroke, i: number, a: Anchor, end: boolean) =>
+      session.sendPointer({ t: "s", id: Number(s.id.slice(1)), tool: s.tool, i, a, end });
     const add = (e: PointerEvent, end = false) => {
-      if (!cur) return;
+      if (!cur || !area) return;
+      // Outside the editor nothing is recorded; the line resumes when it comes back.
+      if (!inside(area, e.clientX, e.clientY)) {
+        const last = cur.pts.at(-1);
+        if (end && last) send(cur, cur.pts.length - 1, last.a, true);
+        return;
+      }
       const a = toAnchor(e.clientX, e.clientY);
       if (!a) return;
       const now = performance.now();
@@ -313,12 +360,21 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
       cur.last = now;
       if (end || now - lastSent >= 1000 / 60) {
         lastSent = now;
-        session.sendPointer({ t: "s", id: Number(cur.id.slice(1)), tool: cur.tool, i, a, end });
+        send(cur, i, a, end);
       }
     };
+    const swallow = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const overEditor = (x: number, y: number) => !!document.elementFromPoint(x, y)?.closest(".editor-wrap");
     const down = (e: PointerEvent) => {
-      if (!toolRef.current) return;
-      cv.setPointerCapture(e.pointerId);
+      if (!toolRef.current || e.button !== 0) return;
+      area = drawArea();
+      // Only the editor content, not a toolbar or popup floating over it.
+      if (!area || !inside(area, e.clientX, e.clientY) || !overEditor(e.clientX, e.clientY)) return;
+      swallow(e);
+      document.documentElement.setPointerCapture(e.pointerId);
       seq = (seq + 1) % 1_000_000;
       cur = { id: `m${seq + 1}`, tool: toolRef.current, color: myColor, pts: [], last: 0, ended: false };
       strokes.current.set(cur.id, cur);
@@ -326,30 +382,36 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
     };
     const move = (e: PointerEvent) => {
       if (!cur) return;
+      swallow(e);
       // The browser batches fast moves; take every sample for a smooth line.
       const all = e.getCoalescedEvents?.() ?? [];
       for (const ce of all.length ? all : [e]) add(ce);
     };
     const up = (e: PointerEvent) => {
       if (!cur) return;
+      swallow(e);
       add(e, true);
       cur.ended = true;
       cur = null;
     };
-    const wheel = (e: WheelEvent) => {
-      // Let the code scroll underneath while drawing.
-      const ed = document.elementsFromPoint(e.clientX, e.clientY).find((el) => el !== cv);
-      ed?.dispatchEvent(new WheelEvent("wheel", e));
+    // Mouse events derived from the pointer ones must not reach the editor either.
+    const mouse = (e: MouseEvent) => {
+      if (cur || (toolRef.current && e.type === "mousedown" && overEditor(e.clientX, e.clientY))) swallow(e);
     };
-    cv.addEventListener("pointerdown", down);
-    cv.addEventListener("pointermove", move);
-    cv.addEventListener("pointerup", up);
-    cv.addEventListener("wheel", wheel, { passive: true });
+    const opts = { capture: true };
+    window.addEventListener("pointerdown", down, opts);
+    window.addEventListener("pointermove", move, opts);
+    window.addEventListener("pointerup", up, opts);
+    window.addEventListener("pointercancel", up, opts);
+    window.addEventListener("mousedown", mouse, opts);
+    window.addEventListener("mouseup", mouse, opts);
     return () => {
-      cv.removeEventListener("pointerdown", down);
-      cv.removeEventListener("pointermove", move);
-      cv.removeEventListener("pointerup", up);
-      cv.removeEventListener("wheel", wheel);
+      window.removeEventListener("pointerdown", down, opts);
+      window.removeEventListener("pointermove", move, opts);
+      window.removeEventListener("pointerup", up, opts);
+      window.removeEventListener("pointercancel", up, opts);
+      window.removeEventListener("mousedown", mouse, opts);
+      window.removeEventListener("mouseup", mouse, opts);
     };
   }, [session, myColor]);
 
@@ -371,13 +433,21 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
       ctx.clearRect(0, 0, innerWidth, innerHeight);
       const now = performance.now();
 
+      const area = drawArea();
+      ctx.save();
+      if (area) {
+        ctx.beginPath();
+        ctx.rect(area.left, area.top, area.width, area.height);
+        ctx.clip();
+      }
       for (const s of strokes.current.values()) {
         if (s.tool === "laser" && s.ended && now - s.last > LASER_FADE_MS) {
           strokes.current.delete(s.id);
           continue;
         }
-        drawStroke(ctx, s, now, laserCanvas);
+        if (area) drawStroke(ctx, s, now, laserCanvas);
       }
+      ctx.restore();
       ctx.shadowBlur = 0;
       ctx.globalAlpha = 1;
 
@@ -409,7 +479,7 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
 
   return (
     <>
-      <canvas ref={canvasRef} className={`overlay${tool ? " drawing" : ""}`} style={{ width: "100vw", height: "100vh" }} />
+      <canvas ref={canvasRef} className="overlay" style={{ width: "100vw", height: "100vh" }} />
       <div ref={pointerRef} className="remote-pointer" style={{ opacity: 0 }}>
         <svg width="24" height="24" viewBox="0 0 24 24" className="cursor-svg">
           <path
@@ -431,9 +501,9 @@ export function PointerOverlay({ session, tool, setTool, myColor, peerColor, pee
       {tool && (
         <div className="draw-hint">
           {tool === "laser" ? <Zap size={13} /> : tool === "pen" ? <PenLine size={13} /> : <Highlighter size={13} />}
-          {tool === "laser" ? "Laser" : tool === "pen" ? "Pen" : "Highlighter"} — drag to draw
+          {tool === "laser" ? "Laser" : tool === "pen" ? "Pen" : "Highlighter"} — drag in the editor to draw
           <span className="kbd">Esc</span> stop
-          <span className="kbd">Ctrl+Alt+C</span> clear
+          <span className="kbd">Ctrl+Alt+C</span> clear mine
         </div>
       )}
     </>

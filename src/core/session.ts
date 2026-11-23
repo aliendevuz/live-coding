@@ -125,6 +125,8 @@ export class Session extends Emitter<Events> {
     s.projectPath = p.path;
     s.projectKey = `${room}:${p.name}`;
     s.sessionId = randomString(12);
+    // Terminals are guarded while the student may type (the default).
+    await invoke("pty_guard", { on: s.perms.terminal }).catch(() => {});
     await s.begin();
     return s;
   }
@@ -148,6 +150,19 @@ export class Session extends Emitter<Events> {
       this.state = s;
       this.emit("state", s);
       if (s === "reconnecting" && this.peer) this.system(`Connection lost. Reconnecting…`);
+    });
+    // The partner left on purpose (Leave, or closed the window): say so, and
+    // drop their cursor, pointer and drawings right away instead of waiting
+    // for the connection to time out.
+    rpc.on("leave", () => {
+      const p = this.peer;
+      if (!p) return;
+      this.peer = null;
+      this.ysync.dropPeer();
+      this.emit("pointer", { t: "p", a: null });
+      this.emit("pointer", { t: "clear" });
+      this.emit("peer", null);
+      this.system(`${p.name} left the lesson.`);
     });
     link.on("error", (e) => this.emit("error", e));
     link.on("stats", (st) => {
@@ -237,6 +252,7 @@ export class Session extends Emitter<Events> {
   setPerms(p: Perms) {
     if (this.role !== "host") return;
     this.perms = p;
+    void invoke("pty_guard", { on: p.terminal }).catch(() => {});
     this.emit("perms", p);
     this.rpc.notify("perms", p);
   }
@@ -267,8 +283,15 @@ export class Session extends Emitter<Events> {
     this.emit("chat", this.chat);
   }
 
+  /** Tell the partner we are going (before the link closes). */
+  sayGoodbye() {
+    this.rpc.notify("leave");
+  }
+
   async leave(endRoom: boolean) {
+    this.sayGoodbye();
     if (this.role === "host") {
+      await invoke("pty_guard", { on: false }).catch(() => {});
       await this.files.flush().catch(() => {});
       await this.notebooks.flush().catch(() => {});
       for (const v of this.terms.list()) if (v.alive) await invoke("pty_kill", { id: v.id }).catch(() => {});

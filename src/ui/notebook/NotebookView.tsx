@@ -1,7 +1,7 @@
 // Jupyter notebook view: shared cells (Yjs), live outputs, kernel on the host.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MonacoBinding } from "y-monaco";
+import { MonacoBinding } from "../monaco-binding";
 import * as Y from "yjs";
 import {
   ArrowDown,

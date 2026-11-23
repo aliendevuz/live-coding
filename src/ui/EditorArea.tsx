@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
-import { MonacoBinding } from "y-monaco";
+import { MonacoBinding } from "./monaco-binding";
 import type * as Y from "yjs";
 import { Download, FileSearch, Loader2, Play, X } from "lucide-react";
 import { decodeText } from "../core/files";
@@ -292,8 +292,9 @@ export const EditorArea = forwardRef<EditorHandle, Props>(function EditorArea(
         const c = st.user?.color;
         if (!c || id === session.doc.clientID) continue;
         css += `.yRemoteSelection-${id}{background-color:${c}66}`;
-        css += `.yRemoteSelectionHead-${id}{border-color:${c}}`;
-        css += `.yRemoteSelectionHead-${id}::after{content:"${String(st.user.name).replace(/["\\]/g, "")}";position:absolute;top:-1.45em;left:-2px;background:${c};color:#fff;font:600 10.5px/1.5 "Segoe UI",sans-serif;padding:0 6px;border-radius:4px 4px 4px 0;white-space:nowrap;pointer-events:none;box-shadow:0 1px 3px #0006;z-index:10}`;
+        // Just a caret in the partner's color; the name shows on hover (see app.css).
+        css += `.yRemoteSelectionHead-${id}{border-color:${c};--peer:${c}}`;
+        css += `.yRemoteSelectionHead-${id}::after{content:"${String(st.user.name).replace(/["\\\n]/g, "")}"}`;
       }
       style.textContent = css;
     };

@@ -1,5 +1,6 @@
 mod fsops;
 mod kernel;
+mod liveserver;
 mod lsp;
 mod pty;
 mod tunnel;
@@ -27,6 +28,7 @@ pub fn run() {
         .manage(fsops::Project::default())
         .manage(pty::Ptys::default())
         .manage(tunnel::Tunnels::default())
+        .manage(liveserver::LiveServer::default())
         .manage(lsp::Lsps::default())
         .manage(kernel::Kernels::default())
         .invoke_handler(tauri::generate_handler![
@@ -51,6 +53,8 @@ pub fn run() {
             fsops::local_read_range,
             pty::pty_spawn,
             pty::pty_write,
+            pty::pty_write_guest,
+            pty::pty_guard,
             pty::pty_resize,
             pty::pty_kill,
             tunnel::tunnel_connect,
@@ -61,6 +65,7 @@ pub fn run() {
             tunnel::tunnel_ack,
             tunnel::tunnel_close,
             tunnel::tunnel_reset,
+            liveserver::live_start,
             lsp::lsp_env,
             lsp::lsp_has,
             lsp::lsp_install,

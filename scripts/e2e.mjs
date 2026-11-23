@@ -246,6 +246,18 @@ await host.eval(`${S}.setPerms({ terminal: true })`);
 ok(await guest.until(`return ${S}.perms.terminal === true`, 5000), "permission reaches guest");
 await guest.eval(`${S}.terms.input(${termId}, "echo from-guest-$((2+3))\\r")`);
 ok(await host.until(`const s = (() => { ${bufText(termId)} })(); return s.includes("from-guest-5")`, 8000), "guest typing runs on host once allowed");
+// v5.3: what the student runs must stay inside the project folder.
+await guest.eval(`${S}.terms.input(${termId}, "cd C:\\\\\\r")`);
+ok(await host.until(`const s = (() => { ${bufText(termId)} })(); return s.includes("Duet: blocked")`, 8000), "guest 'cd C:\\' is blocked");
+await guest.eval(`${S}.terms.input(${termId}, "Get-Location | % { 'LOC=' + $_.Path }\\r")`);
+ok(
+  await host.until(`const s = (() => { ${bufText(termId)} })(); return s.includes("LOC=") && !/LOC=C:\\\\?\\s/.test(s)`, 8000),
+  "guest terminal still in the project folder",
+);
+await guest.eval(`${S}.terms.input(${termId}, "type ..\\\\..\\\\x.txt\\r")`);
+ok(await host.until(`const s = (() => { ${bufText(termId)} })(); return s.includes("is outside the project folder")`, 8000), "guest '..' path is blocked");
+await host.eval(`${S}.terms.input(${termId}, "echo host-free\\r")`);
+ok(await host.until(`const s = (() => { ${bufText(termId)} })(); return s.includes("host-free")`, 8000), "host types normally");
 
 // ---- tunnel ----
 await host.eval(`${S}.tunnels.share(${WEB_PORT})`);
@@ -581,7 +593,7 @@ await host.eval(`await ${S}.terms.kill(${vt})`);
 
 // ---- v5.1: drawing tools stay clickable while drawing ----
 await host.combo(["ctrl", "alt"], "p", "KeyP", 80);
-ok(await host.until(`return document.querySelector(".overlay")?.classList.contains("drawing")`, 3000), "pen mode on");
+ok(await host.until(`return document.body.classList.contains("draw-tool")`, 3000), "pen mode on");
 const laserBtn = await host.center('.toolbar .tool[title^="Laser"]');
 await host.mouse("mousePressed", laserBtn.x, laserBtn.y);
 await host.mouse("mouseReleased", laserBtn.x, laserBtn.y);
@@ -597,6 +609,11 @@ const wave = async (dy, steps = 40) => {
 await wave(-120);
 await host.combo(["ctrl", "alt"], "p", "KeyP", 80);
 await wave(-20);
+// Outside the editor the app still works while a tool is on (nothing is drawn there).
+const calcItem = await host.center('[data-path="calc.py"]');
+await host.mouse("mousePressed", calcItem.x, calcItem.y);
+await host.mouse("mouseReleased", calcItem.x, calcItem.y);
+ok(await host.until(`return document.querySelector(".tab.active")?.textContent.includes("calc.py")`, 5000), "explorer is clickable while drawing (drawing stays in the editor)");
 await host.key("Escape", "Escape", 27);
 await sleep(400);
 
@@ -626,6 +643,36 @@ ok(disk2.startsWith("# after reconnect"), "editing works after reconnect");
 ok(await guest.until(`return ${S}.tunnels.ports.some(p => p.port === ${WEB_PORT})`, 8000), "shared ports restored after reconnect");
 const after = await (await fetch(`http://127.0.0.1:${await guest.eval(`return ${S}.tunnels.ports.find(p => p.port === ${WEB_PORT}).local`)}/index.html`)).text();
 ok(after === "<h1>Duet</h1>\n", "tunnel works after reconnect");
+
+// ---- v5.3: live server ----
+const livePort = await host.eval(`return await window.__TAURI_INTERNALS__.invoke("live_start", { port: 5500 })`);
+const livePage = await (await fetch(`http://127.0.0.1:${livePort}/index.html`)).text();
+ok(livePage.includes("<h1>Duet</h1>") && livePage.includes('id="__duet_live"'), "live server serves HTML with the live client");
+ok((await fetch(`http://127.0.0.1:${livePort}/.env`)).status === 404, "live server never serves .env");
+ok((await fetch(`http://127.0.0.1:${livePort}/__duet/live.js`)).ok, "live client script is served");
+{
+  const ac = new AbortController();
+  const res = await fetch(`http://127.0.0.1:${livePort}/__duet/events`, { signal: ac.signal });
+  const reader = res.body.getReader();
+  await sleep(300);
+  fs.writeFileSync(path.join(proj, "live.css"), `body { color: red } /* ${Date.now()} */\n`);
+  let got = "";
+  const until = Date.now() + 5000;
+  while (!got.includes("live.css") && Date.now() < until) {
+    const r = await Promise.race([reader.read(), sleep(5000).then(() => ({ done: true }))]);
+    if (r.done) break;
+    got += new TextDecoder().decode(r.value);
+  }
+  ac.abort();
+  ok(got.includes("live.css"), "live server pushes file changes to the page");
+}
+
+// ---- v5.3: leaving clears the partner's cursor at once ----
+await guest.eval(`await ${S}.leave(false)`);
+ok(
+  await host.until(`return ${S}.peer === null && ${S}.chat.some(m => m.text.includes("left the lesson")) && [...${S}.awareness.getStates().keys()].every(id => id === ${S}.doc.clientID)`, 5000),
+  "guest leaving: host is told, guest cursor removed",
+);
 
 console.log(`\n${failures ? failures + " FAILED" : "ALL PASSED"} — screenshots in ${SHOTS}`);
 cleanup();

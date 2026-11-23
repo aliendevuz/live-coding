@@ -14,7 +14,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use tauri::ipc::{Request, Response};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Folders that are never cloned and never watched: the guest recreates them
 /// (npm install, python -m venv) and they are usually huge.
@@ -27,7 +27,7 @@ fn is_heavy_dir(name: &str) -> bool {
 }
 
 /// Secrets stay on the host's machine.
-fn is_secret_file(name: &str) -> bool {
+pub fn is_secret_file(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n == ".env" || (n.starts_with(".env.") && n != ".env.example" && n != ".env.sample")
 }
@@ -40,7 +40,7 @@ pub struct Project {
 }
 
 impl Project {
-    fn root(&self) -> Result<PathBuf, String> {
+    pub fn root(&self) -> Result<PathBuf, String> {
         self.root.lock().unwrap().clone().ok_or_else(|| "no project open".to_string())
     }
 }
@@ -423,6 +423,8 @@ fn start_watcher(app: AppHandle, root: PathBuf) -> Result<notify::RecommendedWat
                 })
                 .collect();
             if !changes.is_empty() {
+                let files: Vec<String> = changes.iter().filter(|c| !c.dir).map(|c| c.path.clone()).collect();
+                app.state::<crate::liveserver::LiveServer>().changed(&files);
                 let _ = app.emit("fs-changed", changes);
             }
         }

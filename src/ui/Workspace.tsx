@@ -171,6 +171,15 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
     return () => detachLsp(session.lsp);
   }, [session]);
 
+  // Closing the window is leaving too: tell the partner (so our cursor goes
+  // away on their screen at once) and, on the host, save pending edits.
+  useEffect(() => {
+    const un = getCurrentWindow().onCloseRequested(async () => {
+      await Promise.race([session.leave(false), new Promise((r) => setTimeout(r, 1500))]);
+    });
+    return () => void un.then((f) => f());
+  }, [session]);
+
   useEffect(() => {
     const offs = [
       session.on("toast", (t) => {
@@ -298,7 +307,7 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
       { id: "hl", title: "Draw: Highlighter", keys: "Ctrl+Alt+H", run: () => setTool((t) => (t === "highlighter" ? null : "highlighter")) },
       {
         id: "clear",
-        title: "Draw: Clear Drawings",
+        title: "Draw: Clear My Drawings",
         keys: "Ctrl+Alt+C",
         run: () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", ctrlKey: true, altKey: true })),
       },
@@ -391,7 +400,7 @@ export function Workspace({ session, onLeave }: { session: Session; onLeave: () 
           <ToolButton active={tool === "highlighter"} title="Highlighter (Ctrl+Alt+H)" onClick={() => setTool(tool === "highlighter" ? null : "highlighter")} icon={Highlighter} />
           <span className="toolbar-sep" />
           <ToolButton
-            title="Clear drawings (Ctrl+Alt+C)"
+            title="Clear my drawings (Ctrl+Alt+C). Your partner's stay."
             onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", ctrlKey: true, altKey: true }))}
             icon={Eraser}
           />

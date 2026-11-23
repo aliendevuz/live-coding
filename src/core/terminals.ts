@@ -170,10 +170,11 @@ export class Terminals extends Emitter<Events> {
   async run(path: string): Promise<void> {
     if (this.s.role === "guest") {
       const id = await this.s.rpc.call<number>("term.run", { path });
-      this.revealWhenListed(id, false);
+      if (id >= 0) this.revealWhenListed(id, false);
       return;
     }
     const id = await this.hostRun(path);
+    if (id < 0) return;
     this.emit("reveal", { id, remote: false });
     this.s.rpc.notify("term.reveal", { id });
   }
@@ -209,20 +210,18 @@ export class Terminals extends Emitter<Events> {
     setTimeout(off, 5000);
   }
 
+  /**
+   * HTML: the built-in live server (Rust) serves the project and patches the
+   * open page when files change, on both screens (the guest gets the port).
+   * No terminal is involved, so this returns -1.
+   */
   private async runHtml(path: string): Promise<number> {
-    const title = `Static server :${STATIC_PORT}`;
-    let id = [...this.views.values()].find((v) => v.title === title && v.alive)?.id;
-    if (id == null) {
-      const nid = await this.spawn(title);
-      id = nid;
-      setTimeout(() => this.input(nid, `python -m http.server ${STATIC_PORT} --bind 127.0.0.1\r`), 400);
-      await new Promise((r) => setTimeout(r, 1200));
-    }
-    this.s.tunnels.share(STATIC_PORT);
-    const url = `http://localhost:${STATIC_PORT}/${path.split("/").map(encodeURIComponent).join("/")}`;
+    const port = await invoke<number>("live_start", { port: STATIC_PORT });
+    this.s.tunnels.share(port);
+    const url = `http://localhost:${port}/${path.split("/").map(encodeURIComponent).join("/")}`;
     void openUrl(url);
-    this.s.rpc.notify("preview", { port: STATIC_PORT, path });
-    return id;
+    this.s.rpc.notify("preview", { port, path });
+    return -1;
   }
 
   input(id: number, data: string) {
@@ -242,15 +241,31 @@ export class Terminals extends Emitter<Events> {
     const allowed = () => {
       if (!this.s.perms.terminal) throw new Error("The host has not given you terminal access.");
     };
+    // The student's keys go to a guarded shell only (pty.rs + duet_guard.ps1):
+    // commands they run must stay inside the project folder.
+    let warned = false;
     rpc.on("term.input", ({ id, data }) => {
-      if (this.s.perms.terminal) this.input(id, data);
+      if (!this.s.perms.terminal) return;
+      let q = this.writeQueues.get(id);
+      if (!q) this.writeQueues.set(id, (q = new SerialQueue()));
+      void q.run(() =>
+        invoke("pty_write_guest", { id, data }).catch((e) => {
+          if (warned) return;
+          warned = true;
+          this.s.toast(String(e));
+        }),
+      );
     });
     rpc.handle("term.create", ({ title }) => (allowed(), this.spawn(title)));
     rpc.handle("term.kill", ({ id }) => (allowed(), this.kill(id)));
     rpc.handle("term.run", async ({ path }) => {
       allowed();
+      // Only files inside the project, and nothing that could break out of the quoted command.
+      if (typeof path !== "string" || !path || /(^|[\\/])\.\.([\\/]|$)|^[\\/]|^[a-z]:|["'`$;&|\r\n]/i.test(path)) {
+        throw new Error("Only files inside the project can be run.");
+      }
       const id = await this.hostRun(path);
-      this.emit("reveal", { id, remote: true });
+      if (id >= 0) this.emit("reveal", { id, remote: true });
       return id;
     });
 

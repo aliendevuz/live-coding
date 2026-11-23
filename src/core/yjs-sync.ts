@@ -147,6 +147,11 @@ export class YSync {
     }
   }
 
+  /** The partner left: remove their cursors and selections now. */
+  dropPeer() {
+    this.dropRemoteAwareness();
+  }
+
   private dropRemoteAwareness() {
     if (this.remoteClients.size) {
       awarenessProtocol.removeAwarenessStates(this.awareness, [...this.remoteClients], this);
